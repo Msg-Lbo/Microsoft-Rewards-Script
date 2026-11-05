@@ -6,7 +6,7 @@ import type { BrowserContext, Cookie, Page } from 'patchright'
 import type { HttpRequestConfig } from '../util/Http'
 
 import type { MicrosoftRewardsBot } from '../index'
-import type { PageSnapshot, ParsedOffer } from './ReactFunc'
+import type { PageSnapshot, ParsedOffer, StreakState } from './ReactFunc'
 import { loadSession, saveStorageState } from '../util/SessionStore'
 import { isBrowserClosedError } from '../util/Utils'
 
@@ -21,8 +21,6 @@ export default class BrowserFunc {
 
     private rewardsDeploymentId = ''
 
-    private useFlyoutDashboardFallback = false
-
     private botMetricsLoggedPlatforms = new Set<string>()
 
     constructor(bot: MicrosoftRewardsBot) {
@@ -34,91 +32,93 @@ export default class BrowserFunc {
         delete fingerprintHeaders['Cookie']
         delete fingerprintHeaders['cookie']
 
-        if (!this.useFlyoutDashboardFallback) {
-            let primaryError: unknown
-
-            for (let attempt = 1; attempt <= 2; attempt++) {
-                try {
-                    const response = await this.bot.http.request<DashboardData>({
-                        url: URLs.rewards.userInfoApi,
-                        method: 'GET',
-                        headers: {
-                            ...fingerprintHeaders,
-                            Cookie: this.buildCookieHeader(this.getCachedCookies(cookies, URLs.rewards.userInfoApi)),
-                            Referer: URLs.rewards.referer,
-                            Origin: URLs.rewards.origin
-                        },
-                        retries: 0
-                    })
-
-                    await this.applyResponseCookies(URLs.rewards.userInfoApi, response.headers['set-cookie'])
-
-                    if (response.data?.dashboard) {
-                        this.logBotDetectionMetrics(response.data)
-                        return response.data
-                    }
-                    throw new Error('Dashboard data missing from API response')
-                } catch (error) {
-                    primaryError = error
-                    if (attempt === 1) {
-                        this.bot.logger.warn(
-                            this.bot.isMobile,
-                            'GET-DASHBOARD-DATA',
-                            `主接口请求失败，正在重试一次 | 信息=${this.errorMessage(error)}`
-                        )
-                        await new Promise(resolve => setTimeout(resolve, 1000))
-                    }
-                }
-            }
-
-            this.useFlyoutDashboardFallback = true
+        // Bing flyout 接口在各地区可用性最高，优先使用
+        try {
+            return await this.getFlyoutDashboardData(cookies, fingerprintHeaders)
+        } catch (flyoutError) {
             this.bot.logger.warn(
                 this.bot.isMobile,
                 'GET-DASHBOARD-DATA',
-                `重试后主接口仍不可用，改用 Bing flyout 兜底 | 信息=${this.errorMessage(primaryError)}`
+                `Bing flyout 不可用，回退主接口 | 信息=${this.errorMessage(flyoutError)}`
             )
         }
 
-        return await this.getFlyoutDashboardData(cookies, fingerprintHeaders)
+        // rewards.bing.com 的 getuserinfo 为 legacy 路径，仅作最后兜底
+        let primaryError: unknown
+
+        for (let attempt = 1; attempt <= 2; attempt++) {
+            try {
+                const response = await this.bot.http.request<DashboardData>({
+                    url: URLs.rewards.userInfoApi,
+                    method: 'GET',
+                    headers: {
+                        ...fingerprintHeaders,
+                        Cookie: this.buildCookieHeader(this.getCachedCookies(cookies, URLs.rewards.userInfoApi)),
+                        Referer: URLs.rewards.referer,
+                        Origin: URLs.rewards.origin
+                    },
+                    retries: 0
+                })
+
+                await this.applyResponseCookies(URLs.rewards.userInfoApi, response.headers['set-cookie'])
+
+                if (response.data?.dashboard) {
+                    this.logBotDetectionMetrics(response.data)
+                    return response.data
+                }
+                throw new Error('Dashboard data missing from API response')
+            } catch (error) {
+                primaryError = error
+                if (attempt === 1) {
+                    this.bot.logger.warn(
+                        this.bot.isMobile,
+                        'GET-DASHBOARD-DATA',
+                        `主接口请求失败，正在重试一次 | 信息=${this.errorMessage(error)}`
+                    )
+                    await new Promise(resolve => setTimeout(resolve, 1000))
+                }
+            }
+        }
+
+        this.bot.logger.error(
+            this.bot.isMobile,
+            'GET-DASHBOARD-DATA',
+            `获取仪表板数据失败（Bing flyout 与主接口均不可用）: ${this.errorMessage(primaryError)}`
+        )
+        throw primaryError instanceof Error ? primaryError : new Error(String(primaryError))
     }
 
     private async getFlyoutDashboardData(
         cookies: Cookie[] | undefined,
         fingerprintHeaders: Record<string, string>
     ): Promise<DashboardData> {
-        try {
-            const response = await this.bot.http.request<RewardsFlyoutData>({
-                url: URLs.bing.rewardsFlyoutUserInfo,
-                method: 'GET',
-                headers: {
-                    ...fingerprintHeaders,
-                    Accept: 'application/json',
-                    Cookie: this.buildCookieHeader(this.getCachedCookies(cookies, URLs.bing.rewardsFlyoutUserInfo)),
-                    Referer: `${URLs.bing.origin}/`,
-                    Origin: URLs.bing.origin
-                },
-                retries: 0
-            })
+        const response = await this.bot.http.request<RewardsFlyoutData>({
+            url: URLs.bing.rewardsFlyoutUserInfo,
+            method: 'GET',
+            headers: {
+                ...fingerprintHeaders,
+                Accept: 'application/json',
+                Cookie: this.buildCookieHeader(this.getCachedCookies(cookies, URLs.bing.rewardsFlyoutUserInfo)),
+                Referer: `${URLs.bing.origin}/`,
+                Origin: URLs.bing.origin
+            },
+            retries: 0
+        })
 
-            await this.applyResponseCookies(URLs.bing.rewardsFlyoutUserInfo, response.headers['set-cookie'])
+        await this.applyResponseCookies(URLs.bing.rewardsFlyoutUserInfo, response.headers['set-cookie'])
 
-            const detection = detectFlyoutBotWarning(response.data)
-            this.bot.logger.warn(
-                this.bot.isMobile,
-                'GET-DASHBOARD-DATA',
-                `使用 Bing flyout 部分仪表板 | 疑似受限=${detection.likelyLimited} | bot标记=${detection.hasBotProfileMarkers} | 活动折叠=${detection.hasCollapsedActivities}`
-            )
-            const mappedDashboard = mapFlyoutToDashboard(response.data)
-            this.logBotDetectionMetrics(mappedDashboard)
-            return mappedDashboard
-        } catch (error) {
-            this.bot.logger.error(
-                this.bot.isMobile,
-                'GET-DASHBOARD-DATA',
-                `获取仪表板数据失败（主接口与 Bing flyout 兜底均失败）: ${this.errorMessage(error)}`
-            )
-            throw error
+        const detection = detectFlyoutBotWarning(response.data)
+        const message = `Bing flyout 仪表板 | 疑似受限=${detection.likelyLimited} | bot标记=${detection.hasBotProfileMarkers} | 活动折叠=${detection.hasCollapsedActivities}`
+        // 正常路径不输出警告，仅在疑似受限时提示
+        if (detection.likelyLimited) {
+            this.bot.logger.warn(this.bot.isMobile, 'GET-DASHBOARD-DATA', message)
+        } else {
+            this.bot.logger.debug(this.bot.isMobile, 'GET-DASHBOARD-DATA', message)
         }
+
+        const mappedDashboard = mapFlyoutToDashboard(response.data)
+        this.logBotDetectionMetrics(mappedDashboard)
+        return mappedDashboard
     }
 
     private logBotDetectionMetrics(data: DashboardData): void {
@@ -187,12 +187,12 @@ export default class BrowserFunc {
             const mobileSearchPoints = mobile.known ? mobile.remaining : null
 
             const todayDate = this.bot.utils.getFormattedDate()
-            const dailySetPoints =
-                data.dashboard.dailySetPromotions[todayDate]?.reduce(
-                    (sum: number, x: { pointProgressMax: number; pointProgress: number }) =>
-                        sum + (x.pointProgressMax - x.pointProgress),
-                    0
-                ) ?? 0
+            const todayDailySet = data.dashboard.dailySetPromotions[todayDate] ?? []
+            const dailySetPoints = todayDailySet.reduce(
+                (sum: number, x: { pointProgressMax: number; pointProgress: number }) =>
+                    sum + (x.pointProgressMax - x.pointProgress),
+                0
+            )
 
             const morePromotionsPoints =
                 data.dashboard.morePromotions?.reduce((sum, x) => {
@@ -201,6 +201,11 @@ export default class BrowserFunc {
                     }
                     return sum
                 }, 0) ?? 0
+
+            // 更多推广里 0 分的邀请类任务不计入完成度，避免虚增分母
+            const countedMorePromotions =
+                data.dashboard.morePromotions?.filter(x => x.promotionType === 'urlreward' && x.pointProgressMax > 0) ??
+                []
 
             const totalEarnablePoints =
                 desktopSearchPoints === null || mobileSearchPoints === null
@@ -212,7 +217,13 @@ export default class BrowserFunc {
                 morePromotionsPoints,
                 desktopSearchPoints,
                 mobileSearchPoints,
-                totalEarnablePoints
+                totalEarnablePoints,
+                mobileSearchMax: mobile.known ? mobile.max : null,
+                desktopSearchMax: desktop.known ? desktop.max : null,
+                dailySetDone: todayDailySet.filter(x => x.complete).length,
+                dailySetTotal: todayDailySet.length,
+                morePromotionsDone: countedMorePromotions.filter(x => x.complete).length,
+                morePromotionsTotal: countedMorePromotions.length
             }
         } catch (error) {
             this.bot.logger.error(
@@ -222,6 +233,50 @@ export default class BrowserFunc {
             )
             throw error
         }
+    }
+
+    /**
+     * 读取指定伙伴的连续打卡状态
+     * 优先使用已解析快照，缺失时刷新 /earn 与 /dashboard 后重新解析
+     * @param {String} partner - 伙伴标识，例如 bingapp
+     * @returns {Promise<StreakState|null>} 连击状态，未找到返回 null
+     */
+    async getStreak(partner: string): Promise<StreakState | null> {
+        const read = (): StreakState | null => {
+            const snapshots = [this.bot.reactSnapshot, this.bot.reactSnapshots.mobile, this.bot.reactSnapshots.desktop]
+            for (const snapshot of snapshots) {
+                const streak = snapshot?.streaks.find(item => item.partner === partner)
+                if (streak) return streak
+            }
+            return null
+        }
+
+        const cached = read()
+        if (cached) return cached
+
+        await this.refreshEarnSnapshot()
+        return read()
+    }
+
+    /**
+     * 读取全部连续打卡状态
+     * 优先使用已解析快照，快照为空时刷新 /earn 与 /dashboard 后重新解析
+     * @returns {Promise<StreakState[]>} 连击状态列表
+     */
+    async getStreaks(): Promise<StreakState[]> {
+        const read = (): StreakState[] => {
+            const snapshots = [this.bot.reactSnapshot, this.bot.reactSnapshots.mobile, this.bot.reactSnapshots.desktop]
+            for (const snapshot of snapshots) {
+                if (snapshot?.streaks.length) return snapshot.streaks
+            }
+            return []
+        }
+
+        const cached = read()
+        if (cached.length) return cached
+
+        await this.refreshEarnSnapshot()
+        return read()
     }
 
     async getAppEarnablePoints(): Promise<AppEarnablePoints> {
@@ -246,6 +301,8 @@ export default class BrowserFunc {
             )
 
             let readToEarn = 0
+            let readToEarnEarned = 0
+            let readToEarnMax = 0
 
             for (const item of eligibleActivities) {
                 const attrs = item.attributes
@@ -254,16 +311,33 @@ export default class BrowserFunc {
                     const pointMax = parseInt(attrs.pointmax ?? '0')
                     const pointProgress = parseInt(attrs.pointprogress ?? '0')
                     readToEarn = Math.max(0, pointMax - pointProgress)
+                    readToEarnEarned = pointProgress
+                    readToEarnMax = pointMax
                 }
             }
-            const checkInState = resolveCheckInState(userData.response.promotions, this.bot.userData.geoLocale)
-            const checkIn = checkInState.remaining
+            const checkInState = resolveCheckInState(await this.getStreak('bingapp'))
+            const checkIn = checkInState.status === 'unknown' ? null : (checkInState.remaining ?? 0)
             const totalEarnablePoints = checkIn === null ? null : readToEarn + checkIn
+
+            // 应用推广口径与 AppPromotions 保持一致：有 offerid 且类型为 sapphire
+            const appPromotions = userData.response.promotions.filter(
+                x => x.attributes.type === 'sapphire' && Boolean(x.attributes.offerid)
+            )
 
             return {
                 readToEarn,
                 checkIn,
-                totalEarnablePoints
+                totalEarnablePoints,
+                appPromotionsDone: appPromotions.filter(x => x.attributes.complete?.toLowerCase() === 'true').length,
+                appPromotionsTotal: appPromotions.length,
+                checkInDone:
+                    checkInState.status === 'complete' ? true : checkInState.status === 'pending' ? false : null,
+                readToEarnEarned,
+                readToEarnMax,
+                checkInEarned: checkInState.status === 'complete' ? checkInState.todayPoints : 0,
+                checkInMax: checkInState.todayPoints,
+                checkInDays: checkInState.completedDays,
+                checkInTotalDays: checkInState.totalDays
             }
         } catch (error) {
             this.bot.logger.error(

@@ -22,6 +22,7 @@ export interface QuestChild {
     hash: string | null
     points: number
     isCompleted: boolean
+    /** 奖励应用专属等渠道锁，仅影响客户端入口，服务端仍会签发 hash */
     isLocked: boolean
     isDisabled: boolean
     reportable: boolean
@@ -677,7 +678,8 @@ export default class ReactFunc {
             const isLocked = (obj.isLocked as boolean | undefined) === true
             const isDisabled = (obj.isDisabled as boolean | undefined) === true
 
-            const reportable = !!hash && !isCompleted && !isLocked && !isDisabled
+            // 渠道锁（如「奖励应用专属」）只是客户端入口限制，hash 仍由服务端签发，照样可以上报
+            const reportable = !!hash && !isCompleted && !isDisabled
 
             out.push({
                 offerId,

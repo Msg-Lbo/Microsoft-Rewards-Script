@@ -14,6 +14,8 @@ type FlyoutProfileAttributes = Profile['attributes'] & {
     rbs_upd?: string
     SerpBotScore_upd?: string
     AdsBotScore_upd?: string
+    /** 匿名响应标记，值为字符串 "True" 表示服务端未识别登录用户 */
+    nonuser?: string | boolean
 }
 
 interface FlyoutProfile extends Omit<Profile, 'attributes'> {
@@ -116,6 +118,18 @@ export function mapFlyoutToDashboard(data: RewardsFlyoutData): DashboardData {
     if (data.isError || !userInfo?.isRewardsUser || !profile || !flyout || !flyoutStatus?.isRewardsUser) {
         const message = data.errorMessage ?? userInfo?.errorMessage ?? 'Flyout response is missing Rewards account data'
         throw new Error(message)
+    }
+
+    // 匿名响应自检：服务端把请求当成未登录用户时会带上 nonuser 标记且不返回任何计数器
+    if (String(profile.attributes?.nonuser ?? '').toLowerCase() === 'true') {
+        throw new Error('Bing flyout 返回匿名用户数据（nonuser=True），说明当前会话未被微软认可，需重新登录')
+    }
+
+    // 计数器为空时无法计算今日可赚与任务进度，继续执行会静默跳过所有任务
+    const userInfoCounters = (userInfo?.counters ?? {}) as Record<string, unknown>
+    const flyoutCounters = flyoutStatus.counters ?? {}
+    if (!Object.keys(userInfoCounters).length && !Object.keys(flyoutCounters).length) {
+        throw new Error('Bing flyout 未返回任何计数器数据，无法判断任务进度，需重新登录后再试')
     }
 
     const counters = flyoutStatus.counters ?? {}

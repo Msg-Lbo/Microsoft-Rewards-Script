@@ -15,8 +15,12 @@ note
 .DS_Store
 .playwright-chromium-installed
 .stfolder/
-.envlogs/
 /logs
+# 本地调试运行时重定向产生的临时日志
+*.out.log
+*.err.log
+# 配置编辑器自动生成的本地备份，含账号相关配置，严禁提交
+/config.json.bak
 # 本地私密配置与编辑器工作目录，严禁提交
 /.env
 /.zcode/

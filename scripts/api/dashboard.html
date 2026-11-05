@@ -1,0 +1,1140 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Microsoft Rewards 实时面板</title>
+<style>
+    :root {
+        --bg: #0b0f14;
+        --panel: #131a22;
+        --panel-2: #182230;
+        --line: #24303e;
+        --txt: #d7e0ea;
+        --dim: #7b8b9e;
+        --green: #3ddc84;
+        --yellow: #f5c542;
+        --red: #ff5f5f;
+        --blue: #4aa8ff;
+        --purple: #b48bff;
+    }
+    * { box-sizing: border-box; }
+    body {
+        margin: 0;
+        background: var(--bg);
+        color: var(--txt);
+        font: 13px/1.5 "Consolas", "微软雅黑", monospace;
+        height: 100vh;
+        display: flex;
+        flex-direction: column;
+        overflow: hidden;
+
+        .bar {
+            display: flex;
+            align-items: center;
+            gap: 14px;
+            padding: 10px 16px;
+            background: var(--panel);
+            border-bottom: 1px solid var(--line);
+            flex: 0 0 auto;
+
+            .title {
+                font-size: 15px;
+                font-weight: 600;
+                letter-spacing: .5px;
+            }
+            .badge {
+                padding: 2px 10px;
+                border-radius: 10px;
+                font-size: 12px;
+                background: #22303f;
+                color: var(--dim);
+                &.running { background: rgba(61,220,132,.15); color: var(--green); }
+                &.idle { background: rgba(123,139,158,.15); color: var(--dim); }
+                &.starting { background: rgba(245,197,66,.15); color: var(--yellow); }
+                &.stopping { background: rgba(255,95,95,.15); color: var(--red); }
+            }
+            .meta { color: var(--dim); }
+            .spacer { flex: 1; }
+            button {
+                background: var(--panel-2);
+                color: var(--txt);
+                border: 1px solid var(--line);
+                border-radius: 6px;
+                padding: 5px 14px;
+                cursor: pointer;
+                font: inherit;
+                &:hover { border-color: var(--blue); color: var(--blue); }
+                &:disabled { opacity: .35; cursor: not-allowed; }
+                &.primary:hover { border-color: var(--green); color: var(--green); }
+                &.danger:hover { border-color: var(--red); color: var(--red); }
+            }
+        }
+
+        .stats {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+            gap: 10px;
+            padding: 12px 16px;
+            flex: 0 0 auto;
+
+            .card {
+                background: var(--panel);
+                border: 1px solid var(--line);
+                border-radius: 8px;
+                padding: 10px 14px;
+
+                .k { color: var(--dim); font-size: 12px; }
+                .v {
+                    font-size: 22px;
+                    font-weight: 600;
+                    margin-top: 4px;
+                    &.green { color: var(--green); }
+                    &.blue { color: var(--blue); }
+                    &.yellow { color: var(--yellow); }
+                }
+                .sub { color: var(--dim); font-size: 12px; margin-top: 2px; }
+            }
+        }
+
+        .mid {
+            display: grid;
+            grid-template-columns: minmax(280px, 380px) 1fr;
+            gap: 10px;
+            padding: 0 16px 10px;
+            flex: 0 0 auto;
+            max-height: 38vh;
+            overflow: hidden;
+
+            .box {
+                background: var(--panel);
+                border: 1px solid var(--line);
+                border-radius: 8px;
+                padding: 10px 14px;
+                overflow: auto;
+
+                h3 {
+                    margin: 0 0 8px;
+                    font-size: 12px;
+                    font-weight: 600;
+                    color: var(--dim);
+                    letter-spacing: 1px;
+                }
+                .acct {
+                    border-top: 1px dashed var(--line);
+                    padding: 8px 0;
+                    &:first-of-type { border-top: 0; }
+                    .email { font-weight: 600; }
+                    .row { color: var(--dim); font-size: 12px; margin-top: 2px; }
+                    .chips {
+                        display: flex;
+                        flex-wrap: wrap;
+                        gap: 5px;
+                        margin-top: 6px;
+
+                        .chip {
+                            background: var(--panel-2);
+                            border: 1px solid var(--line);
+                            border-radius: 4px;
+                            padding: 1px 7px;
+                            font-size: 11px;
+                            color: var(--blue);
+                        }
+                    }
+                }
+                .empty { color: var(--dim); font-size: 12px; }
+
+                .prog {
+                    margin-bottom: 10px;
+                    &:last-child { margin-bottom: 0; }
+
+                    .prog-head {
+                        display: flex;
+                        justify-content: space-between;
+                        font-size: 12px;
+                        color: var(--dim);
+                        margin-bottom: 4px;
+
+                        .tag {
+                            font-size: 11px;
+                            padding: 0 6px;
+                            border-radius: 4px;
+                            &.done { color: var(--green); background: rgba(61,220,132,.13); }
+                            &.pending { color: var(--yellow); background: rgba(245,197,66,.13); }
+                            &.none { color: var(--dim); background: rgba(123,139,158,.13); }
+                        }
+                    }
+                    .track {
+                        height: 8px;
+                        background: #0d141b;
+                        border-radius: 4px;
+                        overflow: hidden;
+                        border: 1px solid var(--line);
+
+                        i {
+                            display: block;
+                            height: 100%;
+                            background: linear-gradient(90deg, var(--blue), var(--purple));
+                            transition: width .4s ease;
+                            width: 0;
+                        }
+                    }
+                    &.done .track i { background: linear-gradient(90deg, var(--green), #2bb56a); }
+                    &.none .track i { background: #2a3644; }
+                }
+
+                .verdict {
+                    margin-top: 10px;
+                    padding-top: 8px;
+                    border-top: 1px dashed var(--line);
+                    font-size: 12px;
+                    line-height: 1.5;
+                }
+            }
+        }
+
+        .logs {
+            flex: 1 1 auto;
+            display: flex;
+            flex-direction: column;
+            margin: 0 16px 14px;
+            background: var(--panel);
+            border: 1px solid var(--line);
+            border-radius: 8px;
+            overflow: hidden;
+            min-height: 0;
+
+            .tools {
+                display: flex;
+                align-items: center;
+                gap: 10px;
+                padding: 8px 12px;
+                border-bottom: 1px solid var(--line);
+                flex: 0 0 auto;
+                font-size: 12px;
+
+                select, input {
+                    background: var(--panel-2);
+                    color: var(--txt);
+                    border: 1px solid var(--line);
+                    border-radius: 5px;
+                    padding: 4px 8px;
+                    font: inherit;
+                    outline: none;
+                    &:focus { border-color: var(--blue); }
+                }
+                input { width: 200px; }
+                label { color: var(--dim); display: flex; align-items: center; gap: 5px; cursor: pointer; }
+                .spacer { flex: 1; }
+                .count { color: var(--dim); }
+            }
+            .stream {
+                flex: 1 1 auto;
+                overflow-y: auto;
+                padding: 6px 0;
+                min-height: 0;
+
+                .line {
+                    display: flex;
+                    gap: 8px;
+                    padding: 1px 12px;
+                    white-space: pre-wrap;
+                    word-break: break-all;
+                    font-size: 12px;
+                    line-height: 1.55;
+                    &:hover { background: rgba(74,168,255,.06); }
+
+                    .t { color: #4a5a6b; flex: 0 0 auto; }
+                    .lv { flex: 0 0 46px; text-align: center; border-radius: 3px; font-size: 11px; }
+                    .tag { color: var(--purple); flex: 0 0 auto; }
+                    .msg { flex: 1 1 auto; }
+
+                    &.debug { color: #5c6b7c; }
+                    &.info .lv { background: rgba(74,168,255,.13); color: var(--blue); }
+                    &.warn { color: #e8d08a; }
+                    &.warn .lv { background: rgba(245,197,66,.15); color: var(--yellow); }
+                    &.error { color: #ffb3b3; }
+                    &.error .lv { background: rgba(255,95,95,.15); color: var(--red); }
+                }
+            }
+        }
+    }
+    .hidden { display: none !important; }
+
+    .modal {
+        position: fixed;
+        inset: 0;
+        background: rgba(3, 6, 10, .78);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        z-index: 99;
+        padding: 24px;
+
+        .sheet {
+            width: min(920px, 100%);
+            max-height: 88vh;
+            display: flex;
+            flex-direction: column;
+            background: var(--panel);
+            border: 1px solid var(--line);
+            border-radius: 10px;
+            overflow: hidden;
+
+            .sheet-head {
+                display: flex;
+                align-items: center;
+                gap: 12px;
+                padding: 12px 18px;
+                border-bottom: 1px solid var(--line);
+                flex: 0 0 auto;
+
+                h2 { margin: 0; font-size: 15px; font-weight: 600; }
+                .spacer { flex: 1; }
+                .tip { color: var(--dim); font-size: 12px; }
+            }
+            .presets {
+                display: flex;
+                gap: 8px;
+                padding: 12px 18px;
+                border-bottom: 1px solid var(--line);
+                flex: 0 0 auto;
+                align-items: center;
+                flex-wrap: wrap;
+
+                span.label { color: var(--dim); font-size: 12px; }
+                button {
+                    background: var(--panel-2);
+                    color: var(--txt);
+                    border: 1px solid var(--line);
+                    border-radius: 6px;
+                    padding: 5px 14px;
+                    cursor: pointer;
+                    font: inherit;
+                    &:hover { border-color: var(--blue); color: var(--blue); }
+                }
+            }
+            .sheet-body {
+                flex: 1 1 auto;
+                overflow-y: auto;
+                padding: 6px 18px 18px;
+                min-height: 0;
+
+                .group {
+                    margin-top: 18px;
+
+                    h4 {
+                        margin: 0 0 10px;
+                        font-size: 12px;
+                        color: var(--dim);
+                        letter-spacing: 1px;
+                        border-bottom: 1px dashed var(--line);
+                        padding-bottom: 6px;
+                    }
+                }
+                .field {
+                    display: flex;
+                    align-items: center;
+                    gap: 12px;
+                    padding: 5px 0;
+                    font-size: 12px;
+
+                    .name { flex: 0 0 300px; color: var(--txt); }
+                    .hint { color: var(--dim); font-size: 11px; flex: 1 1 auto; }
+                    input[type="text"], input[type="number"], select {
+                        width: 110px;
+                        background: var(--panel-2);
+                        color: var(--txt);
+                        border: 1px solid var(--line);
+                        border-radius: 5px;
+                        padding: 3px 8px;
+                        font: inherit;
+                        outline: none;
+                        &:focus { border-color: var(--blue); }
+                        &.dirty { border-color: var(--yellow); color: var(--yellow); }
+                    }
+                    input[type="checkbox"] { width: auto; }
+                }
+            }
+            .sheet-foot {
+                display: flex;
+                align-items: center;
+                gap: 10px;
+                padding: 12px 18px;
+                border-top: 1px solid var(--line);
+                flex: 0 0 auto;
+
+                .status { color: var(--dim); font-size: 12px; flex: 1; }
+                button {
+                    background: var(--panel-2);
+                    color: var(--txt);
+                    border: 1px solid var(--line);
+                    border-radius: 6px;
+                    padding: 6px 16px;
+                    cursor: pointer;
+                    font: inherit;
+                    &:hover { border-color: var(--blue); color: var(--blue); }
+                    &.save:hover { border-color: var(--green); color: var(--green); }
+                    &.save-restart:hover { border-color: var(--yellow); color: var(--yellow); }
+                }
+            }
+        }
+    }
+</style>
+</head>
+<body>
+    <div class="bar">
+        <span class="title">Microsoft Rewards 实时面板</span>
+        <span id="state" class="badge idle">idle</span>
+        <span id="meta" class="meta">等待连接…</span>
+        <span class="spacer"></span>
+        <button id="btnConfig">配置</button>
+        <button id="btnStart" class="primary">启动</button>
+        <button id="btnStop" class="danger">停止</button>
+        <button id="btnRestart">重启</button>
+    </div>
+
+    <div class="stats">
+        <div class="card">
+            <div class="k">当前余额</div>
+            <div id="balance" class="v blue">-</div>
+            <div id="balanceSub" class="sub">等待数据</div>
+        </div>
+        <div class="card">
+            <div class="k">本轮已得</div>
+            <div id="collected" class="v green">0</div>
+            <div id="collectedSub" class="sub">-</div>
+        </div>
+        <div class="card">
+            <div class="k">当前阶段</div>
+            <div id="stage" class="v yellow" style="font-size:16px;padding-top:6px">待机</div>
+            <div id="stageSub" class="sub">-</div>
+        </div>
+        <div class="card">
+            <div class="k">运行时长</div>
+            <div id="duration" class="v">-</div>
+            <div id="durationSub" class="sub">账户 0/0</div>
+        </div>
+    </div>
+
+    <div class="mid">
+        <div class="box">
+            <h3>账户</h3>
+            <div id="accounts"><div class="empty">暂无账户数据</div></div>
+        </div>
+        <div class="box">
+            <h3>任务进度</h3>
+            <div id="progress"><div class="empty">暂无进度数据</div></div>
+        </div>
+    </div>
+
+    <div class="logs">
+        <div class="tools">
+            <select id="level">
+                <option value="debug">全部</option>
+                <option value="info" selected>信息以上</option>
+                <option value="warn">警告以上</option>
+                <option value="error">仅错误</option>
+            </select>
+            <input id="search" placeholder="过滤关键词…" />
+            <label><input id="follow" type="checkbox" checked /> 自动滚动</label>
+            <label><input id="pause" type="checkbox" /> 暂停</label>
+            <span class="spacer"></span>
+            <span id="logCount" class="count">0 条</span>
+            <button id="btnClear">清空</button>
+        </div>
+        <div id="stream" class="stream"></div>
+    </div>
+
+    <div id="configModal" class="modal hidden">
+        <div class="sheet">
+            <div class="sheet-head">
+                <h2>配置文件</h2>
+                <span class="tip">修改后需重启任务才生效</span>
+                <span class="spacer"></span>
+                <span id="cfgPath" class="tip"></span>
+            </div>
+            <div class="presets">
+                <span class="label">节奏预设：</span>
+                <button data-preset="fast">激进（最快）</button>
+                <button data-preset="normal">标准</button>
+                <button data-preset="safe">保守（防风控）</button>
+            </div>
+            <div id="cfgBody" class="sheet-body"></div>
+            <div class="sheet-foot">
+                <span id="cfgStatus" class="status"></span>
+                <button id="cfgReload">重新加载</button>
+                <button id="cfgSave" class="save">保存</button>
+                <button id="cfgSaveRestart" class="save-restart">保存并重启任务</button>
+                <button id="cfgClose">关闭</button>
+            </div>
+        </div>
+    </div>
+
+<script>
+/**
+ * 面板配置：API 基址与 token 均可通过地址栏参数覆盖并记忆到 localStorage
+ * 示例: /?api=http://127.0.0.1:3010&token=xxx
+ */
+const params = new URLSearchParams(location.search) // 地址栏参数
+const API_BASE = (params.get('api') || localStorage.getItem('rw_api') || 'http://127.0.0.1:3010').replace(/\/+$/, '') // 控制 API 地址
+const TOKEN = params.get('token') || localStorage.getItem('rw_token') || '' // 鉴权 token，为空表示 API 未启用鉴权
+if (params.get('api')) localStorage.setItem('rw_api', API_BASE)
+if (params.get('token')) localStorage.setItem('rw_token', TOKEN)
+
+let statusData = null // 最新 /status 数据
+let pointsData = null // 最新 /points 数据
+let allLogs = [] // 已接收的全部日志
+let latestLogId = 0 // SSE 断线重连用的 last-event-id
+let timer = null // 时长/倒计时刷新定时器
+
+const $ = id => document.getElementById(id)
+const MAX_LOGS = 1200 // 前端日志上限，防止内存膨胀
+
+/** 阶段名称中文映射 */
+const STAGE_MAP = {
+    'RUN-START': '启动脚本',
+    'ACCOUNT-START': '账户开始',
+    'BROWSER': '启动浏览器',
+    'BROWSER-FINGERPRINT': '生成指纹',
+    'SESSION': '恢复会话',
+    'LOGIN': '登录',
+    'LOGIN-APP': '获取 App 令牌',
+    'GET-DASHBOARD-DATA': '读取面板数据',
+    'BOOTSTRAP': '解析页面',
+    'POINTS': '统计积分',
+    'ENABLE-STREAK-PROTECTION': '连击保护',
+    'DAILY-SET': '每日任务',
+    'MORE-PROMOTIONS': '更多推广',
+    'PUNCHCARD': '打卡任务',
+    'DAILY-CHECK-IN': '每日签到',
+    'READ-TO-EARN': '阅读赚积分',
+    'APP-PROMOTIONS': '应用推广',
+    'APP-REWARD': '应用奖励',
+    'SEARCH-BING': '必应搜索',
+    'SEARCH-MANAGER': '搜索汇总',
+    'SEARCH-BONUS': '加成搜索',
+    'SEARCH-ON-BING-SEARCH': 'ExploreOnBing',
+    'VISUAL-SEARCH': '视觉搜索',
+    'URL-REWARD': 'URL 奖励',
+    'CLAIM-BONUS-POINTS': '领取奖励积分',
+    'CLAIM-REWARD': '领取奖励',
+    'ACTIVATE-SEARCH-PERK': '激活搜索加成',
+    'ACCOUNT-END': '账户完成',
+    'RUN-END': '全部完成',
+    'FLOW': '流程调度',
+    'EDGE-BROWSING': 'Edge 浏览'
+}
+
+/**
+ * 带鉴权头请求控制 API
+ * @param {String} path - 接口路径，如 /status
+ * @param {Object} options - fetch 配置
+ * @returns {Promise<Object>} JSON 结果
+ */
+async function api(path, options = {}) {
+    const headers = { ...(options.headers || {}) } // 请求头
+    if (TOKEN) headers.Authorization = `Bearer ${TOKEN}`
+    const res = await fetch(`${API_BASE}${path}`, { ...options, headers })
+    if (!res.ok) throw new Error(`${path} 返回 ${res.status}`)
+    return res.json()
+}
+
+/** 格式化秒数为 时:分:秒 */
+function fmtDuration(seconds) {
+    if (!Number.isFinite(seconds) || seconds < 0) return '-'
+    const h = Math.floor(seconds / 3600) // 小时
+    const m = Math.floor((seconds % 3600) / 60) // 分钟
+    const s = Math.floor(seconds % 60) // 秒
+    return [h, m, s].map(v => String(v).padStart(2, '0')).join(':')
+}
+
+/** 渲染顶部状态栏 */
+function renderBar() {
+    const state = statusData?.state ?? 'idle'
+    const badge = $('state')
+    badge.className = `badge ${state}`
+    badge.textContent = state
+    const parts = [`v${statusData?.version ?? '?'}`]
+    if (statusData?.pid) parts.push(`PID ${statusData.pid}`)
+    parts.push(`日志 ${statusData?.logCount ?? 0}`)
+    $('meta').textContent = parts.join(' · ')
+    $('btnStart').disabled = state !== 'idle'
+    $('btnStop').disabled = state === 'idle'
+    $('btnRestart').disabled = state === 'idle'
+}
+
+/** 渲染四个统计卡片 */
+function renderStats() {
+    const run = statusData?.run ?? {}
+    const live = run.live ?? {}
+    const balance = pointsData?.balance ?? live.currentBalance // 当前可用余额
+    const collected = pointsData?.collected ?? run.collected ?? 0 // 本轮已得
+    const total = pointsData?.accountsTotal ?? run.accountsTotal // 账户总数
+    const seen = pointsData?.accountsSeen ?? run.accountsSeen ?? 0 // 已处理账户数
+
+    $('balance').textContent = balance == null ? '-' : balance
+    $('balanceSub').textContent = live.currentAccount ? `账户 ${live.currentAccount}` : '暂无活动账户'
+    $('collected').textContent = `+${collected}`
+    $('collectedSub').textContent = run.totals ? `结算 ${run.totals.newTotal ?? '-'} 分` : '运行中累计'
+    $('durationSub').textContent = `账户 ${seen}/${total ?? '-'}`
+
+    const started = pointsData?.startedAt || statusData?.startedAt || null // 本次启动时间
+    clearInterval(timer)
+    if (!started || (statusData?.state ?? 'idle') === 'idle') {
+        $('duration').textContent = '-'
+        return
+    }
+    const tick = () => {
+        const elapsed = (Date.now() - new Date(started).getTime()) / 1000 // 已运行秒数
+        $('duration').textContent = fmtDuration(elapsed)
+        renderStage()
+    }
+    tick()
+    timer = setInterval(tick, 1000)
+}
+
+/** 渲染账户等待倒计时，返回是否存在等待 */
+function renderDelay() {
+    const delay = statusData?.run?.pendingDelay
+    if (!delay) return false
+    const left = Math.max(0, delay.seconds - (Date.now() - new Date(delay.sinceTs).getTime()) / 1000) // 剩余秒数
+    $('stage').textContent = '账户间隔等待'
+    $('stageSub').textContent = `剩余 ${fmtDuration(left)}${delay.nextEmail ? ` → ${delay.nextEmail}` : ''}`
+    return true
+}
+
+/** 渲染账户列表 */
+function renderAccounts() {
+    const accounts = pointsData?.accounts ?? statusData?.run?.accounts ?? []
+    const box = $('accounts')
+    if (!accounts.length) {
+        box.innerHTML = '<div class="empty">暂无账户数据，等待运行开始…</div>'
+        return
+    }
+    box.innerHTML = ''
+    for (const acc of accounts) {
+        const wrap = document.createElement('div') // 单个账户块
+        wrap.className = 'acct'
+        const stateText = acc.success === true ? '成功' : acc.success === false ? '失败' : '进行中'
+        const stateColor = acc.success === true ? 'var(--green)' : acc.success === false ? 'var(--red)' : 'var(--yellow)'
+        const head = document.createElement('div') // 首行：邮箱 + 状态
+        head.className = 'email'
+        head.textContent = acc.email
+        head.insertAdjacentHTML('beforeend', ` <span style="color:${stateColor};font-size:12px">${stateText}</span>`)
+        wrap.appendChild(head)
+
+        const row = document.createElement('div') // 积分行
+        row.className = 'row'
+        const gained = acc.collected ?? acc.collectedPoints ?? 0 // 本轮得分
+        const cur = acc.balance ?? acc.live?.balance ?? acc.finalPoints ?? '-' // 当前余额
+        row.textContent = `本轮 +${gained} · 余额 ${cur}${acc.initialPoints != null ? ` · 起始 ${acc.initialPoints}` : ''}`
+        wrap.appendChild(row)
+
+        if (acc.earnable) {
+            const earn = document.createElement('div') // 今日可赚
+            earn.className = 'row'
+            earn.textContent = `今日可赚 → 移动 ${acc.earnable.mobile ?? '-'} · 浏览器 ${acc.earnable.browser ?? '-'} · App ${acc.earnable.app ?? '-'}`
+            wrap.appendChild(earn)
+        }
+        if (acc.error) {
+            const err = document.createElement('div') // 错误信息
+            err.className = 'row'
+            err.style.color = 'var(--red)'
+            err.textContent = `错误: ${acc.error}`
+            wrap.appendChild(err)
+        }
+
+        const sources = acc.bySource ?? acc.live?.bySource // 各来源得分
+        if (sources && Object.keys(sources).length) {
+            const chips = document.createElement('div') // 来源徽标容器
+            chips.className = 'chips'
+            for (const [name, val] of Object.entries(sources)) {
+                const chip = document.createElement('span') // 单个来源
+                chip.className = 'chip'
+                chip.textContent = `${name} +${val}`
+                chips.appendChild(chip)
+            }
+            wrap.appendChild(chips)
+        }
+        box.appendChild(wrap)
+    }
+}
+
+/** 渲染今日任务完成度，数据来自运行开始时输出的任务统计日志 */
+function renderProgress() {
+    const box = $('progress')
+    box.innerHTML = ''
+    const accounts = (pointsData?.accounts ?? []).filter(acc => acc.dailyStats) // 已产出统计的账户
+
+    if (!accounts.length) {
+        box.innerHTML = '<div class="empty">等待任务统计…</div>'
+        return
+    }
+
+    for (const acc of accounts) {
+        const stats = acc.dailyStats // 今日完成度快照
+        if (accounts.length > 1) {
+            const title = document.createElement('div') // 多账户时标注归属
+            title.className = 'row'
+            title.textContent = acc.email
+            box.appendChild(title)
+        }
+
+        const rows = stats.rows ?? [] // 全部积分来源的进度
+        const trackable = rows.filter(row => row.done !== null) // 能判定完成状态的来源
+        const doneCount = trackable.filter(row => row.done).length // 已完成数量
+        const pending = rows.filter(row => row.done === false) // 未完成来源
+
+        const summary = document.createElement('div') // 汇总行
+        summary.className = 'row'
+        summary.style.display = 'flex' // 左右分列，便于快速扫读
+        summary.style.justifyContent = 'space-between'
+        const pendingText = pending.length ? `待完成 ${pending.length} 项` : '今日全部达成' // 汇总说明
+        summary.innerHTML =
+            `<span>已完成 <b style="color:var(--green)">${doneCount}</b>/${trackable.length} 项</span>` +
+            `<span style="color:${pending.length ? 'var(--yellow)' : 'var(--green)'}">${pendingText}</span>`
+        box.appendChild(summary)
+
+        for (const row of rows) {
+            const entitled = row.total !== null // 该账户是否有这项任务
+            const hasQuota = entitled && row.total > 0 // 是否有明确上限
+            const pct = hasQuota ? Math.min(100, (row.earned / row.total) * 100) : 0 // 完成百分比
+            const text = entitled ? `${row.earned}/${row.total} ${row.unit}` : '该账户无此任务' // 右侧说明
+            const tagClass = !entitled ? 'none' : row.done ? 'done' : 'pending' // 状态徽标样式
+            const tagText = !entitled ? '无此任务' : row.done ? '已完成' : '未完成' // 状态徽标文案
+
+            const wrap = document.createElement('div') // 单个进度块
+            wrap.className = `prog ${!entitled ? 'none' : row.done ? 'done' : ''}`
+            wrap.innerHTML = `<div class="prog-head"><span>${row.label}</span>
+                <span>${text} <span class="tag ${tagClass}">${tagText}</span></span></div>
+                <div class="track"><i style="width:${pct}%"></i></div>`
+            box.appendChild(wrap)
+        }
+
+        if (stats.streaks?.length) {
+            const streakRow = document.createElement('div') // 连续打卡天数
+            streakRow.className = 'row'
+            streakRow.textContent = `连签：${stats.streaks.join('，')}`
+            box.appendChild(streakRow)
+        }
+
+        const verdict = document.createElement('div') // 总结论
+        const allDone = stats.conclusion === '已全部完成' // 是否全部完成
+        verdict.className = 'verdict'
+        verdict.style.color = allDone ? 'var(--green)' : 'var(--yellow)'
+        verdict.textContent = stats.conclusion ?? '暂无结论'
+        box.appendChild(verdict)
+    }
+}
+
+/** 判断日志是否通过当前过滤条件 */
+function matchFilter(log) {
+    const levelOrder = { debug: 0, info: 1, warn: 2, error: 3 } // 级别顺序
+    const floor = levelOrder[$('level').value] ?? 0
+    if ((levelOrder[log.level] ?? 0) < floor) return false
+    const kw = $('search').value.trim().toLowerCase() // 关键词
+    if (!kw) return true
+    return `${log.title ?? ''} ${log.message ?? ''} ${log.raw ?? ''}`.toLowerCase().includes(kw)
+}
+
+/** 把单条日志渲染成 DOM 行 */
+function renderLine(log) {
+    const line = document.createElement('div') // 日志行
+    const cls = log.level ?? 'info'
+    line.className = `line ${cls}`
+    if (!matchFilter(log)) line.classList.add('hidden')
+
+    const time = document.createElement('span') // 时间列
+    time.className = 't'
+    time.textContent = (log.ts ?? '').split(' ').pop() || '--:--:--'
+
+    const lv = document.createElement('span') // 级别列
+    lv.className = 'lv'
+    lv.textContent = cls.toUpperCase()
+
+    const tag = document.createElement('span') // 平台+标题列
+    tag.className = 'tag'
+    tag.textContent = [log.platform, log.title].filter(Boolean).join('/') || 'SYS'
+
+    const msg = document.createElement('span') // 消息列
+    msg.className = 'msg'
+    msg.textContent = log.message ?? log.raw ?? ''
+    if (String(log.raw).includes('Fraud_UserWarning_BotScore_UX')) msg.style.color = 'var(--red)'
+
+    line.append(time, lv, tag, msg)
+    line.dataset.id = log.id ?? ''
+    line.__log = log // 直接挂载原始对象，过滤时无需再查找
+    return line
+}
+
+/** 追加日志到列表并维持上限 */
+function appendLogs(entries) {
+    if ($('pause').checked) return
+    const stream = $('stream')
+    for (const entry of entries) {
+        allLogs.push(entry)
+        if (entry.id && entry.id > latestLogId) latestLogId = entry.id
+        stream.appendChild(renderLine(entry))
+    }
+    while (allLogs.length > MAX_LOGS) {
+        allLogs.shift()
+        stream.firstElementChild?.remove()
+    }
+    $('logCount').textContent = `${allLogs.length} 条`
+    if ($('follow').checked) stream.scrollTop = stream.scrollHeight
+}
+
+/** 根据最近一条非 debug 日志推断当前阶段 */
+function renderStage() {
+    if (renderDelay()) return
+    let last = null // 最近一条有效日志
+    for (let i = allLogs.length - 1; i >= 0; i--) {
+        if (allLogs[i].level !== 'debug' && allLogs[i].title) { last = allLogs[i]; break }
+    }
+    if (!last) {
+        $('stage').textContent = statusData?.state === 'running' ? '启动中' : '待机'
+        $('stageSub').textContent = '-'
+        return
+    }
+    $('stage').textContent = STAGE_MAP[last.title] ?? last.title
+    $('stageSub').textContent = `${last.platform ?? 'MAIN'} · ${(last.message ?? '').slice(0, 60)}`
+}
+
+/** 拉取状态与积分快照 */
+async function refresh() {
+    try {
+        const [status, points] = await Promise.all([api('/status'), api('/points')])
+        statusData = status
+        pointsData = points
+        renderBar()
+        renderStats()
+        renderAccounts()
+        renderProgress()
+        renderStage()
+    } catch (error) {
+        $('meta').textContent = `无法连接 API：${error.message}`
+    }
+}
+
+/** 建立 SSE 实时日志连接，断线由浏览器自动重连 */
+function connect() {
+    const query = new URLSearchParams({ replay: '200' }) // 首次回放 200 条
+    if (TOKEN) query.set('token', TOKEN)
+    const es = new EventSource(`${API_BASE}/events?${query}`)
+
+    es.addEventListener('hello', event => {
+        const status = JSON.parse(event.data) // 初始状态
+        statusData = status
+        renderBar()
+        renderStage()
+    })
+    es.addEventListener('status', event => {
+        statusData = JSON.parse(event.data) // 状态变更
+        renderBar()
+        renderStats()
+        renderAccounts()
+        renderStage()
+    })
+    es.addEventListener('log', event => {
+        appendLogs([JSON.parse(event.data)])
+        renderStage()
+        if (allLogs.length % 20 === 0) {
+            renderProgress()
+            renderAccounts()
+        }
+    })
+    es.onerror = () => {
+        $('meta').textContent = '实时连接断开，正在重连…'
+    }
+    es.onopen = () => {
+        refresh()
+    }
+}
+
+/** 发送控制指令 */
+async function control(action) {
+    const hints = { start: '确认启动任务？', stop: '确认停止当前运行？', restart: '确认重启任务？' } // 二次确认文案
+    if (!confirm(hints[action])) return
+    try {
+        await api(`/${action}`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: '{}'
+        })
+        setTimeout(refresh, 1200)
+    } catch (error) {
+        alert(`操作失败：${error.message}`)
+    }
+}
+
+$('btnStart').onclick = () => control('start')
+$('btnStop').onclick = () => control('stop')
+$('btnRestart').onclick = () => control('restart')
+
+/**
+ * 可编辑配置字段定义
+ * group 用于分组显示，path 是 config.json 内的路径，type 决定控件类型
+ */
+const CONFIG_FIELDS = [
+    { group: '搜索节奏（重点）', path: ['searchSettings', 'searchDelay', 'min'], label: '搜索间隔最小值', type: 'text', hint: '两次搜索之间的随机等待下限' },
+    { group: '搜索节奏（重点）', path: ['searchSettings', 'searchDelay', 'max'], label: '搜索间隔最大值', type: 'text', hint: '两次搜索之间的随机等待上限' },
+    { group: '搜索节奏（重点）', path: ['searchSettings', 'readDelay', 'min'], label: '阅读间隔最小值', type: 'text', hint: '两篇文章之间的等待下限' },
+    { group: '搜索节奏（重点）', path: ['searchSettings', 'readDelay', 'max'], label: '阅读间隔最大值', type: 'text', hint: '两篇文章之间的等待上限' },
+    { group: '搜索节奏（重点）', path: ['searchSettings', 'searchResultVisitTime'], label: '结果页停留时长', type: 'text', hint: '每次搜索后停留多久' },
+    { group: '搜索节奏（重点）', path: ['searchSettings', 'maxBonusSearches'], label: '加成搜索上限', type: 'number', hint: '需同时开启 doBonusSearches' },
+    { group: '搜索行为', path: ['searchSettings', 'parallelSearching'], label: '并行搜索', type: 'bool' },
+    { group: '搜索行为', path: ['searchSettings', 'clusterSearch'], label: '聚类扩展搜索', type: 'bool' },
+    { group: '搜索行为', path: ['searchSettings', 'runOnZeroPoints'], label: '零积分仍继续搜索', type: 'bool' },
+    { group: '搜索行为', path: ['searchSettings', 'scrollRandomResults'], label: '随机滚动结果页', type: 'bool' },
+    { group: '搜索行为', path: ['searchSettings', 'clickRandomResults'], label: '随机点击结果', type: 'bool' },
+    { group: '搜索行为', path: ['searchSettings', 'queryEngines'], label: '搜索词来源', type: 'list', hint: '逗号分隔，如 china,local' },
+    { group: '任务开关', path: ['workers', 'doDailySet'], label: '每日任务', type: 'bool' },
+    { group: '任务开关', path: ['workers', 'doMorePromotions'], label: '更多推广', type: 'bool' },
+    { group: '任务开关', path: ['workers', 'doPunchCards'], label: '打卡任务', type: 'bool' },
+    { group: '任务开关', path: ['workers', 'doClaimBonusPoints'], label: '领取奖励积分', type: 'bool' },
+    { group: '任务开关', path: ['workers', 'doAppPromotions'], label: '应用推广', type: 'bool' },
+    { group: '任务开关', path: ['workers', 'doDesktopSearch'], label: '桌面搜索', type: 'bool' },
+    { group: '任务开关', path: ['workers', 'doMobileSearch'], label: '移动搜索', type: 'bool' },
+    { group: '任务开关', path: ['workers', 'doBonusSearches'], label: '加成搜索', type: 'bool' },
+    { group: '任务开关', path: ['workers', 'doDailyCheckIn'], label: '每日签到', type: 'bool' },
+    { group: '任务开关', path: ['workers', 'doReadToEarn'], label: '阅读赚积分', type: 'bool' },
+    { group: '任务开关', path: ['workers', 'doActivateSearchPerk'], label: '激活搜索加成', type: 'bool' },
+    { group: '任务开关', path: ['workers', 'doVisualSearch'], label: '视觉搜索', type: 'bool' },
+    { group: '核心', path: ['clusters'], label: '并发集群数', type: 'number', hint: '多账户并行数' },
+    { group: '核心', path: ['headless'], label: '无头模式', type: 'bool', hint: '关闭后可见浏览器窗口' },
+    { group: '核心', path: ['globalTimeout'], label: '全局超时', type: 'text' },
+    { group: '核心', path: ['skipNonPointTasks'], label: '跳过无积分任务', type: 'bool' },
+    { group: '核心', path: ['ensureStreakProtection'], label: '确保连击保护', type: 'bool' },
+    { group: '核心', path: ['prewarmDesktopLogin'], label: '桌面登录预热', type: 'bool' },
+    { group: '核心', path: ['accountDelay', 'min'], label: '账户间隔最小值', type: 'text' },
+    { group: '核心', path: ['accountDelay', 'max'], label: '账户间隔最大值', type: 'text' },
+    { group: '实验性（有风险）', path: ['experimental', 'apiSearch'], label: 'API 搜索', type: 'bool', hint: '不经浏览器，易被标记' },
+    { group: '实验性（有风险）', path: ['experimental', 'apiSearchOnBing'], label: 'API ExploreOnBing', type: 'bool' },
+    { group: '实验性（有风险）', path: ['experimental', 'edgeBrowsing'], label: 'Edge 浏览上报', type: 'bool' }
+]
+
+/** 节奏预设档位，一键填充间隔类字段 */
+const PRESETS = {
+    fast: { searchDelay: ['40sec', '1min'], readDelay: ['10sec', '20sec'], visit: '8sec' },
+    normal: { searchDelay: ['2min', '4min'], readDelay: ['20sec', '40sec'], visit: '20sec' },
+    safe: { searchDelay: ['6min', '12min'], readDelay: ['1min', '2min'], visit: '30sec' }
+}
+
+let originalConfig = null // 服务器上当前的配置快照，用于计算 diff
+let fieldInputs = [] // 渲染出的控件集合 { field, el }
+
+/** 按路径读取嵌套对象值 */
+function getPath(obj, path) {
+    return path.reduce((acc, key) => (acc == null ? acc : acc[key]), obj)
+}
+
+/** 按路径写入嵌套对象值，返回被修改的对象 */
+function setPath(obj, path, value) {
+    let cur = obj
+    for (let i = 0; i < path.length - 1; i++) {
+        if (cur[path[i]] == null || typeof cur[path[i]] !== 'object') cur[path[i]] = {}
+        cur = cur[path[i]]
+    }
+    cur[path[path.length - 1]] = value
+    return obj
+}
+
+/** 把控件当前值转成写入配置的类型 */
+function readInput(field, el) {
+    if (field.type === 'bool') return el.checked
+    if (field.type === 'number') return Number(el.value)
+    if (field.type === 'list') return el.value.split(',').map(v => v.trim()).filter(Boolean)
+    return el.value.trim()
+}
+
+/** 渲染配置文件表单 */
+function renderConfigForm() {
+    const body = $('cfgBody')
+    body.innerHTML = ''
+    fieldInputs = []
+    const groups = [] // 分组顺序
+    const map = {} // 分组名 -> 容器
+
+    for (const field of CONFIG_FIELDS) {
+        if (!map[field.group]) {
+            const section = document.createElement('div') // 分组容器
+            section.className = 'group'
+            const title = document.createElement('h4') // 分组标题
+            title.textContent = field.group
+            section.appendChild(title)
+            map[field.group] = section
+            groups.push(section)
+        }
+        const row = document.createElement('div') // 单个字段行
+        row.className = 'field'
+
+        const name = document.createElement('label') // 字段名
+        name.className = 'name'
+        name.textContent = field.label
+
+        let el // 输入控件
+        if (field.type === 'bool') {
+            el = document.createElement('input')
+            el.type = 'checkbox'
+        } else if (field.type === 'number') {
+            el = document.createElement('input')
+            el.type = 'number'
+        } else {
+            el = document.createElement('input')
+            el.type = 'text'
+        }
+
+        const value = getPath(originalConfig, field.path) // 配置中的当前值
+        if (field.type === 'bool') el.checked = Boolean(value)
+        else if (field.type === 'list') el.value = Array.isArray(value) ? value.join(',') : String(value ?? '')
+        else el.value = value == null ? '' : String(value)
+
+        el.addEventListener('input', () => {
+            const changed = JSON.stringify(readInput(field, el)) !== JSON.stringify(value)
+            el.classList.toggle('dirty', changed)
+            updateCfgStatus()
+        })
+
+        const hint = document.createElement('span') // 说明文字
+        hint.className = 'hint'
+        hint.textContent = field.hint ?? ''
+
+        row.append(name, el, hint)
+        map[field.group].appendChild(row)
+        fieldInputs.push({ field, el })
+    }
+
+    for (const section of groups) body.appendChild(section)
+    updateCfgStatus()
+}
+
+/** 统计并展示当前改动数量 */
+function updateCfgStatus() {
+    const count = collectDiff(true) // 仅统计
+    $('cfgStatus').textContent = count ? `已修改 ${count} 项（未保存）` : '没有修改'
+}
+
+/** 收集所有字段改动形成 PATCH 载荷，countOnly 为真时只返回数量 */
+function collectDiff(countOnly = false) {
+    const diff = {}
+    let count = 0
+    for (const { field, el } of fieldInputs) {
+        const now = readInput(field, el) // 控件当前值
+        const before = getPath(originalConfig, field.path) // 原始值
+        const same = field.type === 'list' ? JSON.stringify(now) === JSON.stringify(before ?? []) : now === before
+        if (same) continue
+        count++
+        if (!countOnly) setPath(diff, field.path, now)
+    }
+    return countOnly ? count : diff
+}
+
+/** 从 API 加载配置并渲染表单 */
+async function loadConfigForm() {
+    try {
+        const data = await api('/config')
+        originalConfig = data.config
+        $('cfgPath').textContent = data.path ?? ''
+        renderConfigForm()
+        $('cfgStatus').textContent = '已加载'
+    } catch (error) {
+        $('cfgStatus').textContent = `加载失败：${error.message}`
+    }
+}
+
+/** 应用节奏预设 */
+function applyPreset(name) {
+    const preset = PRESETS[name]
+    if (!preset) return
+    const pairs = [
+        [['searchSettings', 'searchDelay', 'min'], preset.searchDelay[0]],
+        [['searchSettings', 'searchDelay', 'max'], preset.searchDelay[1]],
+        [['searchSettings', 'readDelay', 'min'], preset.readDelay[0]],
+        [['searchSettings', 'readDelay', 'max'], preset.readDelay[1]],
+        [['searchSettings', 'searchResultVisitTime'], preset.visit]
+    ]
+    for (const [path, value] of pairs) {
+        const target = fieldInputs.find(f => f.field.path.join('.') === path.join('.'))
+        if (!target) continue
+        target.el.value = value
+        target.el.dispatchEvent(new Event('input'))
+    }
+    updateCfgStatus()
+}
+
+/** 保存配置，可选保存后重启任务 */
+async function saveConfig(restart) {
+    const diff = collectDiff()
+    if (!Object.keys(diff).length) {
+        $('cfgStatus').textContent = '没有需要保存的修改'
+        return
+    }
+    $('cfgSave').disabled = true
+    $('cfgSaveRestart').disabled = true
+    $('cfgStatus').textContent = '正在保存…'
+    try {
+        await api('/config', {
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(diff)
+        })
+        $('cfgStatus').textContent = '已保存，重启任务后生效'
+        await loadConfigForm()
+        if (restart) {
+            await api('/restart', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' })
+            $('cfgStatus').textContent = '已保存并重启任务'
+            setTimeout(refresh, 1500)
+        }
+    } catch (error) {
+        const msg = error.message.includes('403')
+            ? '保存失败：API 未开启配置写入，需在 .env 设置 API_ALLOW_CONFIG_WRITE=true 并重启 API'
+            : `保存失败：${error.message}`
+        $('cfgStatus').textContent = msg
+    } finally {
+        $('cfgSave').disabled = false
+        $('cfgSaveRestart').disabled = false
+    }
+}
+
+$('btnConfig').onclick = async () => {
+    $('configModal').classList.remove('hidden')
+    await loadConfigForm()
+}
+$('cfgClose').onclick = () => $('configModal').classList.add('hidden')
+$('cfgReload').onclick = () => loadConfigForm()
+$('cfgSave').onclick = () => saveConfig(false)
+$('cfgSaveRestart').onclick = () => saveConfig(true)
+document.querySelectorAll('[data-preset]').forEach(btn => {
+    btn.onclick = () => applyPreset(btn.dataset.preset)
+})
+$('configModal').addEventListener('click', event => {
+    if (event.target === $('configModal')) $('configModal').classList.add('hidden')
+})
+
+$('btnClear').onclick = () => {
+    allLogs = []
+    $('stream').innerHTML = ''
+    $('logCount').textContent = '0 条'
+}
+$('level').onchange = () => {
+    for (const line of $('stream').children) {
+        if (line.__log) line.classList.toggle('hidden', !matchFilter(line.__log))
+    }
+}
+$('search').oninput = () => $('level').onchange()
+$('pause').onchange = async () => {
+    if ($('pause').checked) return
+    // 恢复时补拉暂停期间产生的新日志，不重建 SSE 连接
+    try {
+        const data = await api(`/logs?afterId=${latestLogId}&limit=500`)
+        appendLogs(data.logs)
+    } catch {}
+}
+
+refresh()
+connect()
+setInterval(refresh, 5000)
+</script>
+</body>
+</html>

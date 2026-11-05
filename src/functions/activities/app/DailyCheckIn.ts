@@ -1,4 +1,5 @@
 import { URLs } from '../../../constants/urls'
+import { BING_APP_USER_AGENT } from '../../../constants/userAgents'
 import type { HttpRequestConfig } from '../../../util/Http'
 import { randomUUID } from 'crypto'
 import { BaseActivity } from '../BaseActivity'
@@ -21,7 +22,7 @@ export class DailyCheckIn extends BaseActivity {
             this.bot.logger.info(
                 this.bot.isMobile,
                 'DAILY-CHECK-IN',
-                `今日已签到，跳过重复请求 | updatedAt=${before.updatedAt} | currentBalance=${this.oldBalance}`
+                `今日已签到，跳过重复请求 | 连签=${before.completedDays}天 | currentBalance=${this.oldBalance}`
             )
             return false
         }
@@ -85,7 +86,7 @@ export class DailyCheckIn extends BaseActivity {
                 this.bot.logger.info(
                     this.bot.isMobile,
                     'DAILY-CHECK-IN',
-                    `已确认今日签到，本次无新增积分 | pointsGained=0 | currentBalance=${newBalance} | updatedAt=${after.updatedAt}`
+                    `已确认今日签到，本次无新增积分 | pointsGained=0 | currentBalance=${newBalance} | 连签=${after.completedDays}天`
                 )
             }
             return true
@@ -101,34 +102,35 @@ export class DailyCheckIn extends BaseActivity {
 
     private async getCheckInState(): Promise<CheckInState> {
         try {
-            const data = await this.bot.browser.func.getAppDashboardData('SAAndroid')
-            return resolveCheckInState(data.response?.promotions ?? [], this.bot.userData.geoLocale)
+            const streak = await this.bot.browser.func.getStreak('bingapp')
+            return resolveCheckInState(streak)
         } catch (error) {
             this.bot.logger.warn(
                 this.bot.isMobile,
                 'DAILY-CHECK-IN',
                 `签到状态读取失败 | ${error instanceof Error ? error.message : String(error)}`
             )
-            return { status: 'unknown', remaining: null, updatedAt: null, reason: '状态读取失败' }
+            return resolveCheckInState(null)
         }
     }
 
     private async submitDaily() {
         try {
             const jsonData = {
-                risk_context: {},
-                type: 103,
-                channel: 'SAIOS',
-                attributes: {},
-                id: randomUUID(),
                 amount: 1,
-                country: this.bot.userData.geoLocale
+                id: randomUUID(),
+                type: 103,
+                country: this.bot.userData.geoLocale,
+                channel: 'SAAndroid',
+                attributes: {
+                    offerid: 'Gamification_Sapphire_DailyCheckIn'
+                }
             }
 
             this.bot.logger.debug(
                 this.bot.isMobile,
                 'DAILY-CHECK-IN',
-                `正在准备每日签到载荷 | type=${jsonData.type} | id=${jsonData.id} | amount=${jsonData.amount} | country=${jsonData.country}`
+                `正在准备每日签到载荷 | type=${jsonData.type} | offerid=${jsonData.attributes.offerid} | id=${jsonData.id} | country=${jsonData.country}`
             )
 
             const request: HttpRequestConfig = {
@@ -138,14 +140,14 @@ export class DailyCheckIn extends BaseActivity {
                     Authorization: `Bearer ${this.bot.accessToken}`,
                     'Content-Type': 'application/json',
                     Accept: '*/*',
-                    'User-Agent':
-                        'Mozilla/5.0 (iPad; CPU iPad OS 26_5 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/26.5 Mobile/15E148 Safari/605.1.15 BingSapphire/33.4.440603001',
-                    'X-Rewards-AppId': 'SAIOS/33.4.440603001',
+                    'User-Agent': BING_APP_USER_AGENT,
+                    'X-Rewards-AppId': 'SAAndroid/32.6.2110003560',
+                    // partnerId 与 flights 缺一不可：缺失时接口返回 200 但 p=0，新版连续打卡不记账
                     'X-Rewards-PartnerId': 'startapp',
+                    'X-Rewards-Flights': 'rwgobig',
                     'X-Rewards-Country': this.bot.userData.geoLocale,
                     'X-Rewards-Language': this.bot.userData.langCode,
-                    'X-Rewards-Flights': 'rwgobig',
-                    'X-Rewards-IsMobile': 'true'
+                    'X-Rewards-ismobile': 'true'
                 },
                 data: JSON.stringify(jsonData)
             }

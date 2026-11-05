@@ -853,7 +853,10 @@ export class Login {
 
         const rewardsLanding = new URL(page.url())
         const rewardsHostname = rewardsLanding.hostname.toLowerCase()
-        const loginRewardsSuccess = rewardsHostname === 'bing.com' || rewardsHostname.endsWith('.bing.com')
+        // 停留在登录/认证路径说明会话未建立，不能仅凭域名判定登录成功
+        const atAuthPath = /(^|\/)(login|signin|signout|oauth2?|auth)(\/|$)|signin-oidc/i.test(rewardsLanding.pathname)
+        const loginRewardsSuccess =
+            (rewardsHostname === 'bing.com' || rewardsHostname.endsWith('.bing.com')) && !atAuthPath
         if (loginRewardsSuccess) {
             if (rewardsHostname === 'rewards.bing.com') {
                 this.bot.logger.info(this.bot.isMobile, 'LOGIN', '成功登录Microsoft Rewards')
@@ -864,6 +867,12 @@ export class Login {
                     `Rewards登录重定向到Bing主页 (${rewardsHostname})；继续验证`
                 )
             }
+        } else if (atAuthPath) {
+            this.bot.logger.warn(
+                this.bot.isMobile,
+                'LOGIN',
+                `奖励仪表板停留在认证路径 (${rewardsHostname}${rewardsLanding.pathname})，判定会话未建立`
+            )
         } else {
             this.bot.logger.warn(this.bot.isMobile, 'LOGIN', '无法验证奖励仪表板，假定登录有效')
         }
@@ -934,8 +943,18 @@ export class Login {
 
                     this.bot.logger.debug(this.bot.isMobile, 'LOGIN-BING', `找到个人资料元素: ${signedIn}`)
 
-                    if (signedIn || this.bot.isMobile) {
+                    if (signedIn) {
                         this.bot.logger.info(this.bot.isMobile, 'LOGIN-BING', 'Bing会话验证成功')
+                        return
+                    }
+
+                    // 移动版 Bing 页面不含 #id_n 头像元素，无法用该选择器判断登录态
+                    if (this.bot.isMobile) {
+                        this.bot.logger.debug(
+                            this.bot.isMobile,
+                            'LOGIN-BING',
+                            '移动版 Bing 页面不含个人资料元素，跳过元素校验（登录态由后续奖励接口返回确认）'
+                        )
                         return
                     }
                 }
@@ -943,7 +962,11 @@ export class Login {
                 await this.bot.utils.wait(1000)
             }
 
-            this.bot.logger.warn(this.bot.isMobile, 'LOGIN-BING', '无法验证Bing会话，继续执行')
+            this.bot.logger.warn(
+                this.bot.isMobile,
+                'LOGIN-BING',
+                '无法验证Bing会话（未找到个人资料元素），后续 HTTP 请求可能被判定为未登录，继续执行'
+            )
         } catch (error) {
             this.bot.logger.warn(
                 this.bot.isMobile,

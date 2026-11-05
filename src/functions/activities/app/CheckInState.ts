@@ -1,50 +1,52 @@
-import type { Promotion } from '../../../interface/AppDashBoardData'
+import type { StreakState } from '../../../browser/ReactFunc'
 
 export interface CheckInState {
     status: 'complete' | 'pending' | 'unknown'
+    /** 今日剩余可赚的签到积分 */
     remaining: number | null
-    updatedAt: string | null
+    /** 今日签到对应的积分额度，与是否已完成无关 */
+    todayPoints: number | null
+    /** 当前处于连续签到的第几天 */
+    currentDay: number | null
+    /** 已连续签到天数 */
+    completedDays: number | null
+    /** 连续签到周期总天数 */
+    totalDays: number | null
     reason: string
 }
 
-function dateKey(value: string | Date, country: string): string | null {
-    const date = new Date(value)
-    if (!Number.isFinite(date.getTime())) return null
-    return new Intl.DateTimeFormat('en-CA', {
-        timeZone: country.toUpperCase() === 'CN' ? 'Asia/Shanghai' : undefined,
-        year: 'numeric',
-        month: '2-digit',
-        day: '2-digit'
-    }).format(date)
-}
-
-export function resolveCheckInState(
-    promotions: Pick<Promotion, 'name' | 'attributes'>[],
-    country: string,
-    now = new Date()
-): CheckInState {
-    const today = dateKey(now, country)
-    const checkIn = promotions.find(item => item.attributes.offerid === 'Gamification_Sapphire_DailyCheckIn')
-    const streak = promotions.find(item => item.name === 'Gamification_Streak_Counter_Promotion')
-    for (const item of [streak, checkIn]) {
-        const updatedAt = item?.attributes.last_updated
-        if (updatedAt && dateKey(updatedAt, country) === today) {
-            return { status: 'complete', remaining: 0, updatedAt, reason: '签到记录已更新到今天' }
+/**
+ * 解析移动应用签到状态
+ * 唯一依据是新版仪表板的 bingapp 连续打卡模型，旧推广的 last_updated 会被错误上报写脏，不可信
+ * @param {StreakState|null} streak - bingapp 连击状态
+ * @returns {CheckInState} 签到状态
+ */
+export function resolveCheckInState(streak: StreakState | null): CheckInState {
+    if (!streak) {
+        return {
+            status: 'unknown',
+            remaining: null,
+            todayPoints: null,
+            currentDay: null,
+            completedDays: null,
+            totalDays: null,
+            reason: '未取得移动应用连续打卡状态'
         }
     }
 
-    const attrs = checkIn?.attributes
-    const updatedAt = attrs?.last_updated ?? null
-    const updatedDay = updatedAt ? dateKey(updatedAt, country) : null
-    const unknown = (reason: string): CheckInState => ({ status: 'unknown', remaining: null, updatedAt, reason })
-    if (!attrs || !updatedDay || !today || updatedDay > today) return unknown('缺少有效的签到更新时间')
-    if (attrs.hidden?.toLowerCase() === 'true' || attrs.give_eligible?.toLowerCase() === 'false') {
-        return unknown('旧签到推广不可作为今日可领取额度')
+    const currentDay = streak.currentDay
+    const completedDays = streak.completedDays
+    const totalDays = streak.totalDays
+    const todayPoints = streak.dailyPoints[currentDay] ?? null
+    const complete = streak.isCurrentDayCompleted || streak.activitiesCompleted >= streak.activitiesTotal
+
+    return {
+        status: complete ? 'complete' : 'pending',
+        remaining: complete ? 0 : todayPoints,
+        todayPoints,
+        currentDay,
+        completedDays,
+        totalDays,
+        reason: complete ? '今日签到已完成' : '今日尚未签到'
     }
-    const progress = attrs.progress ? Number(attrs.progress) : NaN
-    if (!Number.isInteger(progress) || progress < 0) return unknown('签到进度不可确认')
-    const points = attrs[`day_${(progress % 7) + 1}_points`]
-    const remaining = points ? Number(points) : NaN
-    if (!Number.isFinite(remaining) || remaining < 0) return unknown('未提供当日签到积分')
-    return { status: 'pending', remaining, updatedAt, reason: '今日尚无签到记录' }
 }

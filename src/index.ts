@@ -34,7 +34,8 @@ import { sendServerChan, flushServerChanQueue } from './logging/ServerChan'
 import { sendClawBot, flushClawBotQueue, ensureClawBotReady } from './logging/ClawBot'
 import type { DashboardData } from './interface/DashboardData'
 import type { AppDashboardData } from './interface/AppDashBoardData'
-import type { AppEarnablePoints } from './interface/Points'
+import type { AppEarnablePoints, BrowserEarnablePoints, PointProgress } from './interface/Points'
+import type { StreakState } from './browser/ReactFunc'
 
 interface ExecutionContext {
     isMobile: boolean
@@ -71,6 +72,84 @@ export function getCurrentContext(): ExecutionContext {
         return { isMobile: false, account: {} as Account }
     }
     return context
+}
+
+/**
+ * 汇总所有积分来源的进度
+ * 每项统一为「已得/上限」，直接看出哪些已完成、哪些还有缺口
+ * @param {BrowserEarnablePoints} browser - 浏览器侧任务数据
+ * @param {AppEarnablePoints|null} app - App 侧任务数据，null 表示本次不处理 App
+ * @param {StreakState[]} streaks - 连续打卡状态
+ * @returns {PointProgress[]} 进度行
+ */
+function buildPointProgress(
+    browser: BrowserEarnablePoints,
+    app: AppEarnablePoints | null,
+    streaks: StreakState[]
+): PointProgress[] {
+    const rows: PointProgress[] = [] // 进度行
+
+    /**
+     * 追加一行进度
+     * @param {String} label - 来源名称
+     * @param {Number} earned - 已获得
+     * @param {Number|null} max - 上限，null 表示无此任务
+     * @param {String} unit - 计量单位
+     * @param {String} detail - 附加说明
+     */
+    const push = (label: string, earned: number, max: number | null, unit: string, detail?: string) => {
+        rows.push({ label, earned, max, unit, done: max === null ? null : max > 0 ? earned >= max : null, detail })
+    }
+
+    // 搜索额度接口只给剩余可赚，用「上限 - 剩余」折算已得
+    push(
+        '桌面搜索',
+        browser.desktopSearchMax === null ? 0 : browser.desktopSearchMax - (browser.desktopSearchPoints ?? 0),
+        browser.desktopSearchMax,
+        '分'
+    )
+    push(
+        '移动搜索',
+        browser.mobileSearchMax === null ? 0 : browser.mobileSearchMax - (browser.mobileSearchPoints ?? 0),
+        browser.mobileSearchMax,
+        '分'
+    )
+    push('每日任务', browser.dailySetDone, browser.dailySetTotal, '项')
+    push('更多推广', browser.morePromotionsDone, browser.morePromotionsTotal, '项')
+
+    if (app) {
+        push('应用推广', app.appPromotionsDone, app.appPromotionsTotal, '项')
+        push('读文', app.readToEarnEarned, app.readToEarnMax, '分')
+        push(
+            '签到',
+            app.checkInEarned ?? 0,
+            app.checkInMax,
+            '分',
+            app.checkInDays === null || app.checkInTotalDays === null
+                ? undefined
+                : `已连签 ${app.checkInDays}/${app.checkInTotalDays} 天`
+        )
+    }
+
+    // 连续打卡本身也是积分来源，按伙伴拆成独立进度
+    const streakLabels: Record<string, { label: string; unit: string }> = {
+        bing: { label: '打卡必应', unit: '次' },
+        dailyset: { label: '打卡每日', unit: '项' },
+        edge: { label: '打卡Edge', unit: '分钟' }
+    }
+    for (const [partner, meta] of Object.entries(streakLabels)) {
+        const streak = streaks.find(item => item.partner === partner) // 对应伙伴的连击
+        if (!streak) continue
+        push(
+            meta.label,
+            streak.activitiesCompleted,
+            streak.activitiesTotal,
+            meta.unit,
+            `已连签 ${streak.completedDays}/${streak.totalDays} 天`
+        )
+    }
+
+    return rows
 }
 
 async function flushAllWebhooks(timeoutMs = 5000): Promise<void> {
@@ -902,13 +981,35 @@ export class MicrosoftRewardsBot {
 
                 const appAvailable = Boolean(this.accessToken && appData)
 
-                this.logger.info(
-                    'main',
-                    'POINTS',
-                    `今日可赚取 | 移动端: ${browserEarnable.mobileSearchPoints ?? '未提供'} | 浏览器: ${
-                        browserEarnable.desktopSearchPoints ?? '未提供'
-                    } | App: ${appEarnable?.totalEarnablePoints ?? '未知'} | ${accountEmail} | locale: ${this.accountLocale.locale}`
+                // App 数据已就绪时连击快照必然存在，直接复用可避免重复抓取
+                const streaks = appEarnable ? await this.browser.func.getStreaks() : []
+                const progressRows = buildPointProgress(browserEarnable, appEarnable, streaks)
+
+                // 未完成项：done 为 false 才计入，null 表示无此任务或无法确认
+                const pendingItems = progressRows
+                    .filter(row => row.done === false)
+                    .map(row => `${row.label} 还差 ${(row.max ?? 0) - row.earned} ${row.unit}`)
+
+                // 统一成「已得/上限」，无此任务的项单独标注，避免被误读成没做完
+                const progressParts = progressRows.map(row =>
+                    row.max === null ? `${row.label}=无此任务` : `${row.label}=${row.earned}/${row.max}`
                 )
+
+                // 连续打卡的天数进度，与当日完成度互补
+                const streakParts = progressRows.filter(row => row.detail).map(row => `${row.label} ${row.detail}`)
+
+                // 按「名称=值」拼装，API 侧按分隔符解析，勿随意调整结构
+                const statsParts = [
+                    '今日任务统计',
+                    ...progressParts,
+                    `连签=${streakParts.length ? streakParts.join('，') : '-'}`,
+                    `App待赚=${appEarnable?.totalEarnablePoints ?? '-'}`,
+                    `结论=${pendingItems.length ? `未完成：${pendingItems.join('、')}` : '已全部完成'}`,
+                    accountEmail,
+                    `locale: ${this.accountLocale.locale}`
+                ]
+
+                this.logger.info('main', 'POINTS', statsParts.join(' | '))
 
                 const parallel = this.config.searchSettings.parallelSearching
                 const doBonus = this.config.workers.doBonusSearches

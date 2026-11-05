@@ -45,7 +45,7 @@ test('keeps account geoLocale, resolved locale, and cached region as separate fi
     assert.equal(state.accounts['account.n@example.com'].cachedRegion, 'NL')
 })
 
-test('keeps mobile and desktop browser search pools separate in earnable points', () => {
+test('parses daily task stats and derives remaining earnable points', () => {
     const state = createRunState()
 
     apply(
@@ -53,16 +53,67 @@ test('keeps mobile and desktop browser search pools separate in earnable points'
         line(
             'account.n',
             'POINTS',
-            'Earnable today | Mobile: 60 | Browser: 90 | App: 0 | account.n@example.com | locale: nl-NL'
+            '今日任务统计 | 桌面搜索=30/90 | 移动搜索=0/20 | 每日任务=2/3 | 更多推广=1/4 | 应用推广=1/4 | 读文=5/10 | 签到=0/5 | 打卡必应=1/1 | 连签=签到 已连签 0/7 天，打卡必应 已连签 1/7 天 | App待赚=5 | 结论=未完成：桌面搜索 还差 60 分、每日任务 还差 1 项 | account.n@example.com | locale: zh-CN'
         ),
         '2026-08-06T09:20:01.000Z'
     )
 
-    assert.deepEqual(state.accounts['account.n@example.com'].earnable, {
-        mobile: 60,
-        browser: 90,
-        app: 0
+    const account = state.accounts['account.n@example.com']
+
+    // 兼容字段：上限减已得即为剩余可赚分
+    assert.deepEqual(account.earnable, {
+        mobile: 20,
+        browser: 60,
+        app: 5
     })
+
+    const rows = account.dailyStats.rows
+    assert.deepEqual(rows.find(row => row.label === '桌面搜索'), {
+        label: '桌面搜索',
+        unit: '分',
+        earned: 30,
+        total: 90,
+        done: false
+    })
+    assert.deepEqual(rows.find(row => row.label === '更多推广'), {
+        label: '更多推广',
+        unit: '项',
+        earned: 1,
+        total: 4,
+        done: false
+    })
+    assert.deepEqual(rows.find(row => row.label === '读文'), {
+        label: '读文',
+        unit: '分',
+        earned: 5,
+        total: 10,
+        done: false
+    })
+    assert.equal(rows.find(row => row.label === '打卡必应').done, true)
+    assert.deepEqual(account.dailyStats.streaks, ['签到 已连签 0/7 天', '打卡必应 已连签 1/7 天'])
+    assert.equal(account.dailyStats.conclusion, '未完成：桌面搜索 还差 60 分、每日任务 还差 1 项')
+})
+
+test('treats missing quota as null and completed check-in as true', () => {
+    const state = createRunState()
+
+    apply(
+        state,
+        line(
+            'account.n',
+            'POINTS',
+            '今日任务统计 | 桌面搜索=30/30 | 移动搜索=无此任务 | 每日任务=3/3 | 更多推广=3/3 | 应用推广=0/0 | 读文=0/0 | 签到=5/5 | 连签=- | App待赚=0 | 结论=已全部完成 | account.n@example.com | locale: zh-CN'
+        ),
+        '2026-08-06T09:20:01.000Z'
+    )
+
+    const account = state.accounts['account.n@example.com']
+
+    assert.equal(account.dailyStats.rows.find(row => row.label === '移动搜索').total, null)
+    assert.equal(account.earnable.mobile, null)
+    assert.equal(account.dailyStats.rows.find(row => row.label === '签到').done, true)
+    assert.deepEqual(account.dailyStats.streaks, [])
+    assert.equal(account.dailyStats.conclusion, '已全部完成')
 })
 
 test('attributes per-account summaries by logger user when cluster output is interleaved', () => {

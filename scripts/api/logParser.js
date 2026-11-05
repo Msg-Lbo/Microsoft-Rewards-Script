@@ -77,6 +77,7 @@ function ensureAccount(state, email) {
             collectedPoints: null,
             finalPoints: null,
             earnable: null, // { mobile, browser, app }; browser is the desktop search pool
+            dailyStats: null, // 今日任务完成度快照，见 POINTS 日志解析
             searchSummary: null, // { mobile, desktop, bonus, total }
             streakProtection: null, // { enabled, remainingDays, streakCounter, updatedAt }
             edgeBrowsing: null, // background Edge activity progress and ETA
@@ -101,8 +102,6 @@ function ensureAccount(state, email) {
 const RE = {
     runStart: /^启动微软奖励脚本 \| v(\S+) \| 账户数: (\d+) \| 集群数: (\d+)/,
     accountStart: /^开始处理账户: (\S+) \| geoLocale: ([^|]+?)(?: \| locale: (\S+))?(?: \| 缓存区域: (\S+))?\s*$/,
-    earnable:
-        /^今日可赚取 \| 移动端: (\d+|未提供|未知) \| 浏览器: (\d+|未提供|未知) \| App: (\d+|未提供|未知) \| (\S+) \| locale: (\S+)\s*$/,
     searchSummary: /^搜索汇总 \| 移动端=(-?\d+) \| 桌面端=(-?\d+) \| 额外=(-?\d+) \| 总计=(-?\d+)/,
     streakProtection:
         /^快照完成 \| offers=(\d+) \| 可上报=(\d+) \| streaks=(\d+) \| 连续保护已启用=(true|false|null) \| 连续保护剩余天数=(\d+|null) \| 连续计数=(\d+|null) \| 等级=([^|]+) \| 账户=(\S+@\S+)$/,
@@ -125,6 +124,54 @@ function numericField(message, name) {
 function fractionField(message, name) {
     const match = message.match(new RegExp(`(?:^| \\| )${name}=(\\d+)\\/(\\d+)(?= \\| |$)`))
     return match ? { current: Number(match[1]), total: Number(match[2]) } : null
+}
+
+/**
+ * 解析「名称=值 | 名称=值」形式的日志字段，值内部允许出现分隔符之外的任意字符
+ * @param {String} message - 日志正文
+ * @returns {Object} 字段名到值的映射
+ */
+function parseKeyValues(message) {
+    const map = {}
+    for (const part of message.split('|')) {
+        const index = part.indexOf('=')
+        if (index <= 0) continue
+        map[part.slice(0, index).trim()] = part.slice(index + 1).trim()
+    }
+    return map
+}
+
+/**
+ * 解析「已得/上限」形式的额度字段
+ * @param {String} value - 原始字段值
+ * @returns {Object|null} 形如 { earned, total }，格式不符返回 null
+ */
+function parseQuotaFraction(value) {
+    const match = /^(\d+)\/(\d+)$/.exec(value ?? '')
+    return match ? { earned: Number(match[1]), total: Number(match[2]) } : null
+}
+
+/** 今日任务统计包含的积分来源，顺序即仪表板展示顺序 */
+const DAILY_PROGRESS_ROWS = [
+    { key: '桌面搜索', unit: '分' },
+    { key: '移动搜索', unit: '分' },
+    { key: '每日任务', unit: '项' },
+    { key: '更多推广', unit: '项' },
+    { key: '应用推广', unit: '项' },
+    { key: '读文', unit: '分' },
+    { key: '签到', unit: '分' },
+    { key: '打卡必应', unit: '次' },
+    { key: '打卡每日', unit: '项' },
+    { key: '打卡Edge', unit: '分钟' }
+]
+
+/**
+ * 解析整数字段，非纯数字返回 null
+ * @param {String} value - 原始字段值
+ * @returns {Number|null} 整数或 null
+ */
+function parseIntegerOrNull(value) {
+    return /^-?\d+$/.test(value ?? '') ? Number(value) : null
 }
 
 function eventTime(entry) {
@@ -412,17 +459,54 @@ export function applyLogToRunState(state, entry) {
             break
 
         case 'POINTS':
-            if ((m = msg.match(RE.earnable))) {
-                const email = m[4]
-                const acc = ensureAccount(state, email)
-                if (acc) {
-                    const [mobile, browser, app] = m
-                        .slice(1, 4)
-                        .map(value => (/^\d+$/.test(value) ? Number(value) : null))
-                    acc.earnable = { mobile, browser, app }
-                    acc.locale ??= m[5]
+            if (msg.startsWith('今日任务统计 |')) {
+                const emailMatch = msg.match(/([^\s|]+@[^\s|]+)/)
+                if (!emailMatch) break
+                const acc = ensureAccount(state, emailMatch[1])
+                const kv = parseKeyValues(msg)
+
+                // 每项统一按「已得/上限」解析，新增来源只需在表里补一行
+                const rows = []
+                for (const meta of DAILY_PROGRESS_ROWS) {
+                    const raw = kv[meta.key]
+                    if (raw == null) continue
+                    if (raw === '无此任务') {
+                        rows.push({ label: meta.key, unit: meta.unit, earned: 0, total: null, done: null })
+                        continue
+                    }
+                    const quota = parseQuotaFraction(raw)
+                    if (!quota) continue
+                    rows.push({
+                        label: meta.key,
+                        unit: meta.unit,
+                        earned: quota.earned,
+                        total: quota.total,
+                        done: quota.total > 0 ? quota.earned >= quota.total : null
+                    })
                 }
-                state.currentEmail = email
+
+                const findRow = key => rows.find(row => row.label === key) ?? null
+                const mobileRow = findRow('移动搜索')
+                const app = parseIntegerOrNull(kv['App待赚'])
+
+                acc.dailyStats = {
+                    rows,
+                    // 连签进度按「名称 已连签 x/y 天」罗列，仅用于展示
+                    streaks: kv['连签'] && kv['连签'] !== '-' ? kv['连签'].split('，') : [],
+                    app,
+                    conclusion: kv['结论'] ?? null,
+                    updatedAt: eventTime(entry)
+                }
+                // 兼容既有读数逻辑：把额度折算成剩余可赚分
+                acc.earnable = {
+                    mobile: mobileRow && mobileRow.total !== null ? mobileRow.total - mobileRow.earned : null,
+                    browser: findRow('桌面搜索')
+                        ? findRow('桌面搜索').total - findRow('桌面搜索').earned
+                        : null,
+                    app
+                }
+                state.currentEmail = emailMatch[1]
+                return 'daily-stats'
             }
             break
 
