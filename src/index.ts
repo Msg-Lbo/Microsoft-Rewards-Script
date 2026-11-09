@@ -152,6 +152,41 @@ function buildPointProgress(
     return rows
 }
 
+/**
+ * 把任务完成度快照拼成一行统计日志
+ * API/面板按「今日任务统计」前缀解析该行，标签后缀仅供人读
+ */
+function formatStatsLine(
+    tag: string,
+    browser: BrowserEarnablePoints,
+    app: AppEarnablePoints | null,
+    streaks: StreakState[],
+    accountEmail: string,
+    locale: string
+): string {
+    const rows = buildPointProgress(browser, app, streaks)
+    const pending = rows
+        .filter(row => row.done === false)
+        .map(row => `${row.label} 还差 ${(row.max ?? 0) - row.earned} ${row.unit}`)
+    // 统一成「已得/上限」，无此任务的项单独标注，避免被误读成没做完
+    const progressParts = rows.map(row =>
+        row.max === null ? `${row.label}=无此任务` : `${row.label}=${row.earned}/${row.max}`
+    )
+    // 连续打卡的天数进度，与当日完成度互补
+    const streakParts = rows.filter(row => row.detail).map(row => `${row.label} ${row.detail}`)
+
+    // 按「名称=值」拼装，API 侧按分隔符解析，勿随意调整结构
+    return [
+        tag,
+        ...progressParts,
+        `连签=${streakParts.length ? streakParts.join('，') : '-'}`,
+        `App待赚=${app?.totalEarnablePoints ?? '-'}`,
+        `结论=${pending.length ? `未完成：${pending.join('、')}` : '已全部完成'}`,
+        accountEmail,
+        `locale: ${locale}`
+    ].join(' | ')
+}
+
 async function flushAllWebhooks(timeoutMs = 5000): Promise<void> {
     await Promise.allSettled([
         flushDiscordQueue(timeoutMs),
@@ -340,6 +375,15 @@ export class MicrosoftRewardsBot {
                 'main',
                 'EXPERIMENTAL',
                 'edgeBrowsing 已启用 - Edge 浏览活动将在后台通过 HTTP 上报。' +
+                    '此集成为实验性功能；如表现异常，请在 config.experimental 下禁用。'
+            )
+        }
+
+        if (exp.desktopAppWeekly) {
+            this.logger.warn(
+                'main',
+                'EXPERIMENTAL',
+                'desktopAppWeekly 已启用 - 每周专属任务会以 Windows 奖励应用的身份通过 HTTP 上报。' +
                     '此集成为实验性功能；如表现异常，请在 config.experimental 下禁用。'
             )
         }
@@ -730,6 +774,57 @@ export class MicrosoftRewardsBot {
         return accountStats
     }
 
+    /**
+     * 运行结束时重新取数并补发一条统计日志
+     * 面板的任务进度只在收到统计行时刷新，缺这一步会一直显示开跑时的快照
+     */
+    private async logSettlementStats(
+        accountEmail: string,
+        fallbackApp: AppEarnablePoints | null,
+        fallbackStreaks: StreakState[]
+    ): Promise<void> {
+        try {
+            const settled = await this.browser.func.getDashboardData() // 重新拉取额度，避免沿用开跑快照
+            const browserEarnable = await this.browser.func.getBrowserEarnablePoints(settled)
+
+            let appEarnable = fallbackApp // App 额度查询失败时退回开跑快照
+            if (this.accessToken) {
+                try {
+                    appEarnable = await this.browser.func.getAppEarnablePoints()
+                } catch (error) {
+                    this.logger.debug(
+                        'main',
+                        'POINTS',
+                        `结算时 App 额度查询失败，沿用开跑快照 | ${error instanceof Error ? error.message : String(error)}`
+                    )
+                }
+            }
+
+            // 连签状态会被本轮活动改变；页面已关闭时 refreshEarnSnapshot 会改用 HTTP 兜底
+            const refreshed = await this.browser.func.refreshEarnSnapshot().catch(() => null)
+            const streaks = refreshed?.streaks.length ? refreshed.streaks : fallbackStreaks
+
+            this.logger.info(
+                'main',
+                'POINTS',
+                formatStatsLine(
+                    '今日任务统计（结算）',
+                    browserEarnable,
+                    appEarnable,
+                    streaks,
+                    accountEmail,
+                    this.accountLocale.locale
+                )
+            )
+        } catch (error) {
+            this.logger.debug(
+                'main',
+                'POINTS',
+                `结算统计失败，面板将继续显示开跑快照 | ${error instanceof Error ? error.message : String(error)}`
+            )
+        }
+    }
+
     private async gapBetweenWorkers(): Promise<void> {
         const delayMs = this.utils.randomDelay(60000, 240000)
         this.logger.debug(this.isMobile, 'FLOW', `大任务间隔等待 | ${Math.round(delayMs / 1000)}秒`)
@@ -983,33 +1078,19 @@ export class MicrosoftRewardsBot {
 
                 // App 数据已就绪时连击快照必然存在，直接复用可避免重复抓取
                 const streaks = appEarnable ? await this.browser.func.getStreaks() : []
-                const progressRows = buildPointProgress(browserEarnable, appEarnable, streaks)
 
-                // 未完成项：done 为 false 才计入，null 表示无此任务或无法确认
-                const pendingItems = progressRows
-                    .filter(row => row.done === false)
-                    .map(row => `${row.label} 还差 ${(row.max ?? 0) - row.earned} ${row.unit}`)
-
-                // 统一成「已得/上限」，无此任务的项单独标注，避免被误读成没做完
-                const progressParts = progressRows.map(row =>
-                    row.max === null ? `${row.label}=无此任务` : `${row.label}=${row.earned}/${row.max}`
+                this.logger.info(
+                    'main',
+                    'POINTS',
+                    formatStatsLine(
+                        '今日任务统计',
+                        browserEarnable,
+                        appEarnable,
+                        streaks,
+                        accountEmail,
+                        this.accountLocale.locale
+                    )
                 )
-
-                // 连续打卡的天数进度，与当日完成度互补
-                const streakParts = progressRows.filter(row => row.detail).map(row => `${row.label} ${row.detail}`)
-
-                // 按「名称=值」拼装，API 侧按分隔符解析，勿随意调整结构
-                const statsParts = [
-                    '今日任务统计',
-                    ...progressParts,
-                    `连签=${streakParts.length ? streakParts.join('，') : '-'}`,
-                    `App待赚=${appEarnable?.totalEarnablePoints ?? '-'}`,
-                    `结论=${pendingItems.length ? `未完成：${pendingItems.join('、')}` : '已全部完成'}`,
-                    accountEmail,
-                    `locale: ${this.accountLocale.locale}`
-                ]
-
-                this.logger.info('main', 'POINTS', statsParts.join(' | '))
 
                 const parallel = this.config.searchSettings.parallelSearching
                 const doBonus = this.config.workers.doBonusSearches
@@ -1175,6 +1256,17 @@ export class MicrosoftRewardsBot {
                     }
                 }
 
+                if (this.config.experimental.desktopAppWeekly) {
+                    await executionContext.run({ isMobile: false, account }, async () => {
+                        if (!this.cookies.desktop.length) {
+                            this.cookies.desktop = [...this.cookies.mobile]
+                            this.fingerprintDesktop =
+                                this.fingerprintDesktop ?? (await this.browserFactory.generateFingerprint(false))
+                        }
+                        if (await this.activities.doDesktopAppWeekly()) await this.gapBetweenWorkers()
+                    })
+                }
+
                 this.logger.info(
                     'main',
                     'SEARCH-MANAGER',
@@ -1204,6 +1296,9 @@ export class MicrosoftRewardsBot {
                     'FLOW',
                     `积分已收集 | 获得积分=${collectedPoints} | 现余额=${finalPoints} | 账户=${accountEmail}`
                 )
+
+                // 面板的任务进度取自统计行，收尾再发一次才能反映最终状态
+                await this.logSettlementStats(accountEmail, appEarnable, streaks)
 
                 return {
                     initialPoints,

@@ -260,6 +260,23 @@ docker compose restart          # 重启（不重建）
 
 配套 Web 面板推荐 [Rewards Dashboard](https://github.com/mgrimace/rewards-dashboard)，可管理运行、账户、调度、日志、积分。
 
+### 一键启动（Windows）
+
+双击 `run.bat` 即可，它会自动：
+
+1. 拉起控制 API（`3010`）与自带监控面板（`3011`），已在运行则直接复用
+2. 用默认浏览器打开面板 `http://127.0.0.1:3011`
+3. 通过 API 触发一次运行，并把关键日志同步打印到控制台
+
+命令行等价写法：
+
+```bash
+npm run launch      # 一键启动（API + 面板 + 运行 + 控制台日志）
+npm run panel:stop  # 关闭常驻的 API / 面板服务
+```
+
+> ⚠️ 面板的日志与积分来自 API 拉起的子进程，所以请用 `run.bat` / `npm run launch` 启动；单独 `npm start` 时面板不会有实时数据（进程结束后服务会自动清理，不会留下后台残留）。
+
 ---
 
 ## ⚙️ 配置参考

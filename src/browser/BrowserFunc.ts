@@ -3,7 +3,7 @@ import { resolveCheckInState } from '../functions/activities/app/CheckInState'
 import { URLs } from '../constants/urls'
 import { BING_APP_USER_AGENT } from '../constants/userAgents'
 import type { BrowserContext, Cookie, Page } from 'patchright'
-import type { HttpRequestConfig } from '../util/Http'
+import { mergeRequestHeaders, type HttpRequestConfig } from '../util/Http'
 
 import type { MicrosoftRewardsBot } from '../index'
 import type { PageSnapshot, ParsedOffer, StreakState } from './ReactFunc'
@@ -688,6 +688,16 @@ export default class BrowserFunc {
         return null
     }
 
+    // Direct HTTP fetch that keeps the account cookies but lets the caller impersonate another client
+    // (for example the Windows desktop Rewards app) by overriding request headers.
+    async fetchRewardsPageHtml(
+        url: string,
+        route: string,
+        extraHeaders: Record<string, string> = {}
+    ): Promise<string | null> {
+        return await this.fetchRewardsHtml(url, route, extraHeaders)
+    }
+
     private getCachedCookies(explicitCookies?: Cookie[], targetUrl?: string): Cookie[] {
         const cookies = explicitCookies ?? (this.bot.isMobile ? this.bot.cookies.mobile : this.bot.cookies.desktop)
         return targetUrl ? this.filterCookiesForUrl(cookies, targetUrl) : cookies
@@ -984,7 +994,12 @@ export default class BrowserFunc {
     async reportServerAction(
         actionId: string,
         body: unknown[],
-        opts?: { url?: string; referer?: string; routerStateTree?: string }
+        opts?: {
+            url?: string
+            referer?: string
+            routerStateTree?: string
+            headers?: Record<string, string>
+        }
     ): Promise<{ status: number; acknowledged: boolean; availablePoints: number | null }> {
         const url = opts?.url ?? URLs.rewards.earn
         const referer = opts?.referer ?? url
@@ -994,16 +1009,19 @@ export default class BrowserFunc {
         delete fingerprintHeaders['Cookie']
         delete fingerprintHeaders['cookie']
 
-        const headers = {
-            ...fingerprintHeaders,
-            Referer: referer,
-            Origin: URLs.rewards.origin,
-            Accept: 'text/x-component',
-            'Content-Type': 'text/plain;charset=UTF-8',
-            'Next-Action': actionId,
-            'Next-Router-State-Tree': routerStateTree,
-            ...(this.rewardsDeploymentId ? { 'X-Deployment-Id': this.rewardsDeploymentId } : {})
-        }
+        const headers = mergeRequestHeaders(
+            {
+                ...fingerprintHeaders,
+                Referer: referer,
+                Origin: URLs.rewards.origin,
+                Accept: 'text/x-component',
+                'Content-Type': 'text/plain;charset=UTF-8',
+                'Next-Action': actionId,
+                'Next-Router-State-Tree': routerStateTree,
+                ...(this.rewardsDeploymentId ? { 'X-Deployment-Id': this.rewardsDeploymentId } : {})
+            },
+            opts?.headers ?? {}
+        )
 
         const response = await this.bot.http.request({
             url,
@@ -1041,9 +1059,13 @@ export default class BrowserFunc {
         return availablePages.length ? this.bot.browser.react.snapshotPage(availablePages) : null
     }
 
-    private async fetchRewardsHtml(url: string, route: string): Promise<string | null> {
+    private async fetchRewardsHtml(
+        url: string,
+        route: string,
+        extraHeaders: Record<string, string> = {}
+    ): Promise<string | null> {
         try {
-            const headers = { ...(this.bot.fingerprint?.headers ?? {}) }
+            const headers = mergeRequestHeaders({ ...(this.bot.fingerprint?.headers ?? {}) }, extraHeaders)
             delete headers['Cookie']
             delete headers['cookie']
 

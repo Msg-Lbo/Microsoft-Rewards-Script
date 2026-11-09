@@ -94,6 +94,37 @@ test('parses daily task stats and derives remaining earnable points', () => {
     assert.equal(account.dailyStats.conclusion, '未完成：桌面搜索 还差 60 分、每日任务 还差 1 项')
 })
 
+test('settlement stats line overwrites the start-of-run snapshot', () => {
+    const state = createRunState()
+
+    apply(
+        state,
+        line(
+            'account.n',
+            'POINTS',
+            '今日任务统计 | 桌面搜索=9/30 | 移动搜索=无此任务 | 每日任务=0/3 | 更多推广=3/4 | 应用推广=4/4 | 读文=0/30 | 签到=0/10 | 打卡必应=1/1 | 连签=签到 已连签 2/7 天 | App待赚=40 | 结论=未完成：桌面搜索 还差 21 分 | account.n@example.com | locale: zh-CN'
+        ),
+        '2026-08-06T09:20:01.000Z'
+    )
+    apply(
+        state,
+        line(
+            'account.n',
+            'POINTS',
+            '今日任务统计（结算） | 桌面搜索=30/30 | 移动搜索=无此任务 | 每日任务=3/3 | 更多推广=4/4 | 应用推广=4/4 | 读文=30/30 | 签到=10/10 | 打卡必应=1/1 | 打卡Edge=30/30 | 连签=签到 已连签 3/7 天，打卡Edge 已连签 4/7 天 | App待赚=0 | 结论=已全部完成 | account.n@example.com | locale: zh-CN'
+        ),
+        '2026-08-06T09:33:01.000Z'
+    )
+
+    const account = state.accounts['account.n@example.com']
+
+    assert.equal(account.dailyStats.conclusion, '已全部完成')
+    assert.equal(account.dailyStats.rows.find(row => row.label === '桌面搜索').earned, 30)
+    assert.equal(account.dailyStats.rows.find(row => row.label === '打卡Edge').done, true)
+    assert.deepEqual(account.dailyStats.streaks, ['签到 已连签 3/7 天', '打卡Edge 已连签 4/7 天'])
+    assert.deepEqual(account.earnable, { mobile: null, browser: 0, app: 0 })
+})
+
 test('treats missing quota as null and completed check-in as true', () => {
     const state = createRunState()
 

@@ -459,7 +459,7 @@ export function applyLogToRunState(state, entry) {
             break
 
         case 'POINTS':
-            if (msg.startsWith('今日任务统计 |')) {
+            if (msg.startsWith('今日任务统计')) {
                 const emailMatch = msg.match(/([^\s|]+@[^\s|]+)/)
                 if (!emailMatch) break
                 const acc = ensureAccount(state, emailMatch[1])

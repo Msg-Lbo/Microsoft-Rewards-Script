@@ -22,6 +22,7 @@ import { SearchOnBing as BrowserSearchOnBing } from './activities/search/Browser
 import { ApiSearch } from './activities/experimental/ApiSearch'
 import { ApiSearchOnBing } from './activities/experimental/ApiSearchOnBing'
 import { EdgeBrowsing } from './activities/experimental/EdgeBrowsing'
+import { DesktopAppWeekly } from './activities/experimental/DesktopAppWeekly'
 
 import type { Page } from 'patchright'
 import type { BasePromotion, DashboardData } from '../interface/DashboardData'
@@ -141,5 +142,11 @@ export default class Activities {
     doEdgeBrowsing = async (data: DashboardData, signal?: AbortSignal): Promise<void> => {
         const edgeBrowsing = new EdgeBrowsing(this.bot)
         await edgeBrowsing.run(data, signal)
+    }
+
+    doDesktopAppWeekly = async (): Promise<boolean> => {
+        const activity = new DesktopAppWeekly(this.bot)
+        await activity.run()
+        return activity.didExecute()
     }
 }
